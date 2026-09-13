@@ -594,29 +594,161 @@ class NeuroSymApp {
     }
   }
 
-  renderMarkdown(text) {
-    if (!text) return '';
-    
-    // Clean XSS-safe markdown renderer supporting tables, code blocks, lists, quotes, and headers
-    let html = text
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') // Escape HTML
-      .replace(/^### (.*$)/gim, '<h3 style="margin-top:14px; margin-bottom:6px; font-size:1.05rem; font-weight:700;">$1</h3>')
-      .replace(/^## (.*$)/gim, '<h2 style="margin-top:16px; margin-bottom:8px; font-size:1.15rem; font-weight:700;">$1</h2>')
-      .replace(/^# (.*$)/gim, '<h1 style="margin-top:18px; margin-bottom:10px; font-size:1.3rem; font-weight:800;">$1</h1>')
-      .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/gim, '<em>$1</em>')
-      .replace(/```([a-z]*)\n([\s\S]*?)```/gim, '<pre><code>$2</code></pre>')
-      .replace(/```([\s\S]*?)```/gim, '<pre><code>$1</code></pre>')
-      .replace(/`([^`]+)`/gim, '<code>$1</code>')
-      .replace(/^\s*>\s+(.*$)/gim, '<blockquote>$1</blockquote>')
-      .replace(/^\s*[-*•]\s+(.*$)/gim, '<li>$1</li>')
-      .replace(/^\s*(\d+)\.\s+(.*$)/gim, '<li>$2</li>')
-      .replace(/\n\n+/g, '</p><p>')
-      .replace(/\n/g, '<br>');
+  normalizeMarkdown(text) {
+    return String(text || '')
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
 
-    // Wrap list items cleanly
-    html = html.replace(/(<li>.*?<\/li>)+/g, '<ul style="margin: 8px 0 10px 20px; padding: 0;">$&</ul>');
+  renderMarkdown(text) {
+    const normalizedText = this.normalizeMarkdown(text);
+    if (!normalizedText) return '';
+
+    let html = '';
+
+    if (typeof marked !== 'undefined' && marked.parse) {
+      try {
+        marked.setOptions({
+          gfm: true,
+          breaks: true,
+          headerIds: false,
+          mangle: false
+        });
+        html = marked.parse(normalizedText);
+      } catch (e) {
+        console.warn('Marked parse error, using fallback:', e);
+        html = this._fallbackMarkdown(normalizedText);
+      }
+    } else {
+      html = this._fallbackMarkdown(normalizedText);
+    }
+
+    html = html
+      .replace(/<table>/g, '<div class="table-wrapper"><table class="md-table">')
+      .replace(/<\/table>/g, '</table></div>');
+
+    html = html.replace(
+      /<h3>Statutory Infeasibility Alert:\s*([A-Z_ ]+)<\/h3>/gi,
+      '<div class="verdict-banner infeasible"><div class="verdict-banner-title">❌ Statutory Infeasibility Alert: $1</div></div>'
+    );
+    html = html.replace(
+      /<h3>Feasibility Assessment:\s*<strong>\s*([A-Z_ ]+)\s*<\/strong><\/h3>/gi,
+      (m, p1) => {
+        const v = p1.trim();
+        const cls = v === 'FEASIBLE' ? 'feasible' : (v === 'INFEASIBLE' ? 'infeasible' : 'conditional');
+        const icon = v === 'FEASIBLE' ? '✅' : (v === 'INFEASIBLE' ? '❌' : '⚠️');
+        return `<div class="verdict-banner ${cls}"><div class="verdict-banner-title">${icon} Feasibility Assessment: ${v}</div></div>`;
+      }
+    );
+    html = html.replace(
+      /<h3>CORDIS Empirical Analytics:\s*([^<]+)<\/h3>/gi,
+      '<div class="verdict-banner analytics"><div class="verdict-banner-title">📊 CORDIS Empirical Analytics: $1</div></div>'
+    );
+
     return `<div class="md-content">${html}</div>`;
+  }
+
+  _fallbackMarkdown(text) {
+    const lines = text.split('\n');
+    let out = [];
+    let inList = false;
+    let inTable = false;
+    let tableRows = [];
+
+    const flushTable = () => {
+      if (!inTable || tableRows.length === 0) return;
+      let tblHtml = '<div class="table-wrapper"><table class="md-table">';
+      tableRows.forEach((row, rIdx) => {
+        const isHeader = rIdx === 0;
+        const tag = isHeader ? 'th' : 'td';
+        tblHtml += '<tr>';
+        row.forEach(cell => {
+          tblHtml += `<${tag}>${this._inlineMarkdown(cell.trim())}</${tag}>`;
+        });
+        tblHtml += '</tr>';
+      });
+      tblHtml += '</table></div>';
+      out.push(tblHtml);
+      tableRows = [];
+      inTable = false;
+    };
+
+    const flushList = () => {
+      if (inList) {
+        out.push('</ul>');
+        inList = false;
+      }
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const rawLine = lines[i];
+      const line = rawLine.trim();
+
+      if (line.startsWith('|') && line.endsWith('|')) {
+        flushList();
+        if (/^\|[\s\-:|]+\|$/.test(line)) continue;
+        const cells = line.slice(1, -1).split('|');
+        if (!inTable) inTable = true;
+        tableRows.push(cells);
+        continue;
+      } else if (inTable) {
+        flushTable();
+      }
+
+      if (/^[-*•]\s+/.test(line)) {
+        if (!inList) {
+          out.push('<ul>');
+          inList = true;
+        }
+        const itemContent = line.replace(/^[-*•]\s+/, '');
+        out.push(`<li>${this._inlineMarkdown(itemContent)}</li>`);
+        continue;
+      } else if (inList && !line) {
+        flushList();
+        continue;
+      } else if (inList && line) {
+        flushList();
+      }
+
+      if (line.startsWith('#### ')) {
+        out.push(`<h4>${this._inlineMarkdown(line.substring(5))}</h4>`);
+      } else if (line.startsWith('### ')) {
+        out.push(`<h3>${this._inlineMarkdown(line.substring(4))}</h3>`);
+      } else if (line.startsWith('## ')) {
+        out.push(`<h2>${this._inlineMarkdown(line.substring(3))}</h2>`);
+      } else if (line.startsWith('# ')) {
+        out.push(`<h1>${this._inlineMarkdown(line.substring(2))}</h1>`);
+      } else if (line.startsWith('> ')) {
+        out.push(`<blockquote>${this._inlineMarkdown(line.substring(2))}</blockquote>`);
+      } else if (line === '---' || line === '***') {
+        out.push('<hr>');
+      } else if (line) {
+        out.push(`<p>${this._inlineMarkdown(line)}</p>`);
+      }
+    }
+
+    flushTable();
+    flushList();
+    return out.join('\n');
+  }
+
+  _inlineMarkdown(str) {
+    const escaped = String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    return escaped
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.+?)__/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/_(.+?)_/g, '<em>$1</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
   }
 
   scrollToBottom(force = false) {

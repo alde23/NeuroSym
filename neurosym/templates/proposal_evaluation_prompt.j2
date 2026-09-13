@@ -54,14 +54,15 @@ Your role is to evaluate the user's research proposal against official General A
 {% endif %}
 
 ### INSTRUCTIONS:
-1. Provide a structured, professional evaluation covering:
-   - **Feasibility Assessment**: Explicitly declare `FEASIBLE`, `CONDITIONALLY FEASIBLE`, or `INFEASIBLE`.
-   - **General Annex B Regulatory Evaluation**: Detail compliance for each rule with actual numbers.
-   - **Empirical CORDIS Budget Benchmarks & Cost Realism**: Address the exact requested budget (e.g. {{ '€' ~ '{:,.2f}'.format(proposal_context.requested_budget_eur) if proposal_context.requested_budget_eur else 'unspecified' }}). Flag if it is a Severe Budget Outlier (>95th percentile) or under-budgeted (<5th percentile).
-   - **Strategic Advisory & Recommendations**: 2-3 high-impact tactical recommendations.
-2. Return a JSON object:
+1. Provide a structured, highly readable, executive-grade evaluation covering:
+   - **Feasibility Assessment**: State the verdict banner clearly (`FEASIBLE`, `CONDITIONALLY FEASIBLE`, or `INFEASIBLE`) with concise rationale.
+   - **Consortium & General Annex B Compliance**: Provide a concise summary or markdown table of legal entities, EU Member States, and duration limits with pass/fail markers.
+   - **Empirical CORDIS Budget Benchmarks**: Compare the requested grant ({{ '€' ~ '{:,.2f}'.format(proposal_context.requested_budget_eur) if proposal_context.requested_budget_eur else 'unspecified' }}) with the CORDIS cohort distribution (P5, P50, P95). State clearly if it is an outlier.
+   - **Actionable Strategic Next Steps**: Provide numbered, high-impact tactical advice to maximize evaluator scores.
+2. Maintain clean typography: Use bullet points, bold key terms, and markdown tables where suitable. Avoid dense walls of unformatted text.
+3. Return a JSON object:
 {
-  "reply": "Your rich markdown evaluation report.",
+  "reply": "Your rich, cleanly formatted markdown evaluation report.",
   "verdict": "{{ base_report.verdict.value if base_report else 'FEASIBLE' }}",
   "suggested_followups": [
     "Follow-up question 1",
