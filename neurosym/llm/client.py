@@ -1,4 +1,4 @@
-"""LLM client supporting Google Gemini, OpenAI, and local structured engine."""
+"""LLM client supporting multi-key rotation and multi-provider failovers across Gemini, Groq, OpenRouter, and OpenAI."""
 
 import json
 import logging
@@ -8,229 +8,283 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv, find_dotenv
 
+from neurosym.llm.key_manager import ProviderKeyPool
+
 # Ensure environment variables from .env are loaded reliably
 load_dotenv(find_dotenv())
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 logger = logging.getLogger(__name__)
 
-GEMINI_FALLBACK_MODELS = [
-    "gemini-3.6-flash",
+GEMINI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
     "gemini-flash-latest",
-    "gemini-3.5-flash",
-    "gemini-2.0-flash"
+    "gemini-3.6-flash"
+]
+
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768"
+]
+
+OPENROUTER_MODELS = [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemini-2.0-flash-exp:free",
+    "deepseek/deepseek-r1:free"
 ]
 
 
 class LLMClient:
-    """Unified LLM client interface with support for Gemini, Groq, OpenAI, OpenRouter, and deterministic offline engine."""
+    """
+    Unified LLM client interface with intelligent multi-key rotation, 
+    rate-limit cooldown tracking, and multi-provider cascading.
+    """
 
-    def __init__(self, provider: Optional[str] = None, model: Optional[str] = None):
-        self.gemini_key = os.environ.get("GEMINI_API_KEY")
-        self.groq_key = os.environ.get("GROQ_API_KEY")
-        self.openai_key = os.environ.get("OPENAI_API_KEY")
-        self.openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    def __init__(self, provider: Optional[str] = None, model: Optional[str] = None, key_pool: Optional[ProviderKeyPool] = None):
+        self.key_pool = key_pool or ProviderKeyPool()
+        self.preferred_provider = provider
+        self.preferred_model = model
         
-        if provider:
-            self.provider = provider
-        elif self.gemini_key:
+        configured = self.key_pool.get_all_configured_providers()
+        if self.preferred_provider:
+            self.provider = self.preferred_provider
+        elif "gemini" in configured:
             self.provider = "gemini"
-        elif self.groq_key:
+        elif "groq" in configured:
             self.provider = "groq"
-        elif self.openrouter_key:
+        elif "openrouter" in configured:
             self.provider = "openrouter"
-        elif self.openai_key:
+        elif "openai" in configured:
             self.provider = "openai"
         else:
             self.provider = "structured_engine"
 
-        default_model = "gemini-3.6-flash"
-        if self.provider == "groq":
-            default_model = "llama-3.3-70b-versatile"
-        elif self.provider == "openrouter":
-            default_model = "meta-llama/llama-3.3-70b-instruct:free"
-        elif self.provider == "openai":
-            default_model = "gpt-4o-mini"
+        self.model = model or self._get_default_model(self.provider)
+        logger.info(f"Initialized LLMClient (Primary: {self.provider}, Model: {self.model}, Configured providers: {configured})")
 
-        self.model = model or default_model
-        logger.info(f"Initialized LLMClient using provider: {self.provider} (model: {self.model})")
+    def _get_default_model(self, provider: str) -> str:
+        if provider == "gemini":
+            return GEMINI_MODELS[0]
+        elif provider == "groq":
+            return GROQ_MODELS[0]
+        elif provider == "openrouter":
+            return OPENROUTER_MODELS[0]
+        elif provider == "openai":
+            return "gpt-4o-mini"
+        return "structured_engine"
 
     def generate_json(self, prompt: str) -> Dict[str, Any]:
-        """Generates structured JSON response from prompt with multi-provider failover."""
-        if self.provider == "gemini" and self.gemini_key:
-            res = self._call_gemini(prompt)
-            if res:
-                return res
-        if (self.provider == "groq" or self.groq_key) and self.groq_key:
-            res = self._call_groq(prompt)
-            if res:
-                return res
-        if (self.provider == "openrouter" or self.openrouter_key) and self.openrouter_key:
-            res = self._call_openrouter(prompt)
-            if res:
-                return res
-        if self.provider == "openai" and self.openai_key:
-            res = self._call_openai(prompt)
-            if res:
-                return res
+        """
+        Generates structured JSON response with automatic multi-key rotation
+        and tiered provider cascade.
+        """
+        # Determine provider sequence based on availability
+        cascade_sequence = []
+        if self.preferred_provider and self.key_pool.has_any_active_keys(self.preferred_provider):
+            cascade_sequence.append(self.preferred_provider)
 
-        # Fallback structured engine
+        default_order = ["gemini", "groq", "openrouter", "openai"]
+        for p in default_order:
+            if p not in cascade_sequence and self.key_pool.has_any_active_keys(p):
+                cascade_sequence.append(p)
+
+        # Attempt calls across providers and their pooled keys
+        for provider_name in cascade_sequence:
+            result = self._try_provider_with_keys(provider_name, prompt)
+            if result is not None:
+                return result
+
+        # If all external API keys across all providers are exhausted or cooling down,
+        # fallback to the deterministic structured engine
+        logger.warning("All configured API keys across all providers exhausted or in cooldown. Using deterministic engine.")
         return self._call_structured_engine(prompt)
 
-    def _call_gemini(self, prompt: str) -> Dict[str, Any]:
-        """Calls Google Gemini with exponential backoff retries and model fallbacks."""
-        import random
-        import time
+    def _try_provider_with_keys(self, provider: str, prompt: str) -> Optional[Dict[str, Any]]:
+        """Tries active keys for a specific provider, rotating through available keys."""
+        attempted_keys = set()
 
-        models_to_try = [self.model] + [m for m in GEMINI_FALLBACK_MODELS if m != self.model]
+        while True:
+            key = self.key_pool.get_active_key(provider)
+            if not key or key in attempted_keys:
+                break
+            attempted_keys.add(key)
+
+            if provider == "gemini":
+                res = self._call_gemini_single_key(key, prompt)
+            elif provider == "groq":
+                res = self._call_groq_single_key(key, prompt)
+            elif provider == "openrouter":
+                res = self._call_openrouter_single_key(key, prompt)
+            elif provider == "openai":
+                res = self._call_openai_single_key(key, prompt)
+            else:
+                res = None
+
+            if res is not None:
+                return res
+
+        return None
+
+    def _call_gemini_single_key(self, api_key: str, prompt: str) -> Optional[Dict[str, Any]]:
+        """Calls Google Gemini using a specific API key with model fallbacks."""
+        models_to_try = [self.model] if self.provider == "gemini" and self.model in GEMINI_MODELS else []
+        for m in GEMINI_MODELS:
+            if m not in models_to_try:
+                models_to_try.append(m)
 
         for model_name in models_to_try:
-            max_retries = 3
-            base_delay = 2.0
+            try:
+                from google import genai
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={"response_mime_type": "application/json"}
+                )
+                text = response.text.strip()
+                return self._parse_json_safe(text)
+            except Exception as e:
+                err_str = str(e).lower()
+                is_rate_limit = "429" in err_str or "resource_exhausted" in err_str or "quota" in err_str or "rate limit" in err_str
+                is_404 = "404" in err_str or "not found" in err_str
 
-            for attempt in range(max_retries + 1):
-                try:
-                    from google import genai
-                    client = genai.Client(api_key=self.gemini_key)
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config={"response_mime_type": "application/json"}
-                    )
-                    text = response.text.strip()
-                    if text.startswith("```json"):
-                        text = text[7:]
-                    if text.startswith("```"):
-                        text = text[3:]
-                    if text.endswith("```"):
-                        text = text[:-3]
-                    try:
-                        parsed = json.loads(text.strip(), strict=False)
-                    except json.JSONDecodeError:
-                        cleaned = re.sub(r'[\x00-\x1f\x7f]', lambda m: ' ' if m.group(0) in '\n\r\t' else '', text.strip())
-                        parsed = json.loads(cleaned, strict=False)
-                    return parsed
-                except Exception as e:
-                    err_str = str(e).lower()
-                    is_rate_limit = "429" in err_str or "resource_exhausted" in err_str or "quota" in err_str or "rate limit" in err_str
-                    is_404 = "404" in err_str or "not found" in err_str
-                    
-                    if is_rate_limit and attempt < max_retries:
-                        sleep_time = base_delay * (2 ** attempt) + random.uniform(0.5, 1.5)
-                        logger.warning(f"Gemini ({model_name}) rate limited (429). Retrying in {sleep_time:.2f}s (Attempt {attempt+1}/{max_retries})...")
-                        time.sleep(sleep_time)
-                    elif is_404:
-                        logger.warning(f"Gemini model {model_name} returned 404. Trying fallback model...")
-                        break  # Break inner loop to try next model
-                    else:
-                        logger.warning(f"Gemini API call ({model_name}) failed: {e}.")
-                        if attempt == max_retries:
-                            break
+                if is_rate_limit:
+                    cooldown = self._extract_cooldown_delay(err_str, default=45.0)
+                    self.key_pool.mark_key_rate_limited("gemini", api_key, cooldown_seconds=cooldown)
+                    logger.warning(f"Gemini key rate limited on {model_name}. Marking cooldown ({cooldown}s) and rotating key.")
+                    return None  # Rotate key immediately
+                elif is_404:
+                    logger.debug(f"Gemini model {model_name} returned 404, trying next model...")
+                    continue
+                else:
+                    logger.warning(f"Gemini call ({model_name}) error: {e}")
+                    return None
 
-    def _call_groq(self, prompt: str) -> Optional[Dict[str, Any]]:
-        """Calls Groq OpenAI-compatible API with native JSON format and rapid token throughput."""
+        return None
+
+    def _call_groq_single_key(self, api_key: str, prompt: str) -> Optional[Dict[str, Any]]:
+        """Calls Groq OpenAI-compatible API using a specific API key."""
         import httpx
-        import time
 
-        model_name = self.model if self.provider == "groq" else "llama-3.3-70b-versatile"
+        models_to_try = [self.model] if self.provider == "groq" and self.model in GROQ_MODELS else []
+        for m in GROQ_MODELS:
+            if m not in models_to_try:
+                models_to_try.append(m)
+
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {self.groq_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        payload = {
-            "model": model_name,
-            "messages": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.1
-        }
 
-        for attempt in range(3):
+        for model_name in models_to_try:
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.1
+            }
             try:
                 with httpx.Client(timeout=25.0) as client:
                     resp = client.post(url, headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
                         text = data["choices"][0]["message"]["content"].strip()
-                        return json.loads(text, strict=False)
+                        return self._parse_json_safe(text)
                     elif resp.status_code == 429:
-                        logger.warning(f"Groq rate limited (429). Retrying attempt {attempt+1}...")
-                        time.sleep(1.5 * (attempt + 1))
+                        self.key_pool.mark_key_rate_limited("groq", api_key, cooldown_seconds=30.0)
+                        logger.warning(f"Groq key rate limited on {model_name}. Marking cooldown and rotating key.")
+                        return None
                     else:
-                        logger.warning(f"Groq API returned status {resp.status_code}: {resp.text}")
-                        break
+                        logger.warning(f"Groq returned {resp.status_code}: {resp.text[:150]}")
             except Exception as e:
-                logger.warning(f"Groq API call failed (attempt {attempt+1}): {e}")
-                time.sleep(1.0)
+                logger.warning(f"Groq API call error: {e}")
+                return None
+
         return None
 
-    def _call_openrouter(self, prompt: str) -> Optional[Dict[str, Any]]:
-        """Calls OpenRouter OpenAI-compatible API."""
+    def _call_openrouter_single_key(self, api_key: str, prompt: str) -> Optional[Dict[str, Any]]:
+        """Calls OpenRouter OpenAI-compatible endpoint."""
         import httpx
-        import time
 
-        model_name = self.model if self.provider == "openrouter" else "meta-llama/llama-3.3-70b-instruct:free"
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {self.openrouter_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/alde23/NeuroSym",
             "X-Title": "NeuroSym"
         }
-        payload = {
-            "model": model_name,
-            "messages": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.1
-        }
 
-        for attempt in range(3):
+        for model_name in OPENROUTER_MODELS:
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.1
+            }
             try:
                 with httpx.Client(timeout=30.0) as client:
                     resp = client.post(url, headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
                         text = data["choices"][0]["message"]["content"].strip()
-                        return json.loads(text, strict=False)
+                        return self._parse_json_safe(text)
                     elif resp.status_code == 429:
-                        time.sleep(2.0 * (attempt + 1))
-                    else:
-                        break
+                        self.key_pool.mark_key_rate_limited("openrouter", api_key, cooldown_seconds=45.0)
+                        return None
             except Exception as e:
-                logger.warning(f"OpenRouter API call failed: {e}")
-                break
+                logger.warning(f"OpenRouter call error: {e}")
+                return None
+
         return None
 
-    def _call_openai(self, prompt: str) -> Dict[str, Any]:
-        """Calls OpenAI with exponential backoff retries on rate limits."""
-        import random
-        import time
+    def _call_openai_single_key(self, api_key: str, prompt: str) -> Optional[Dict[str, Any]]:
+        """Calls OpenAI with a specific API key."""
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model=self.model if self.provider == "openai" else "gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            text = response.choices[0].message.content.strip()
+            return self._parse_json_safe(text)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate_limit" in err_str:
+                self.key_pool.mark_key_rate_limited("openai", api_key, cooldown_seconds=60.0)
+            return None
 
-        max_retries = 3
-        base_delay = 2.0
-
-        for attempt in range(max_retries + 1):
+    def _extract_cooldown_delay(self, error_msg: str, default: float = 45.0) -> float:
+        """Parses suggested retry delay from error messages if available."""
+        match = re.search(r'retry in (\d+(?:\.\d+)?)s', error_msg)
+        if match:
             try:
-                from openai import OpenAI
-                client = OpenAI(api_key=self.openai_key)
-                response = client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"}
-                )
-                text = response.choices[0].message.content.strip()
-                return json.loads(text)
-            except Exception as e:
-                err_str = str(e).lower()
-                is_rate_limit = "429" in err_str or "rate_limit" in err_str
-                
-                if is_rate_limit and attempt < max_retries:
-                    sleep_time = base_delay * (2 ** attempt) + random.uniform(0.5, 1.5)
-                    logger.warning(f"OpenAI rate limited (429). Retrying in {sleep_time:.2f}s (Attempt {attempt+1}/{max_retries})...")
-                    time.sleep(sleep_time)
-                else:
-                    logger.warning(f"OpenAI API call failed after {attempt} retries: {e}. Falling back to structured engine.")
-                    return self._call_structured_engine(prompt)
+                return float(match.group(1)) + 2.0
+            except ValueError:
+                pass
+        return default
+
+    def _parse_json_safe(self, text: str) -> Dict[str, Any]:
+        """Safely parses JSON stripping markdown fences and control characters."""
+        t = text.strip()
+        if t.startswith("```json"):
+            t = t[7:]
+        if t.startswith("```"):
+            t = t[3:]
+        if t.endswith("```"):
+            t = t[:-3]
+        t = t.strip()
+
+        try:
+            return json.loads(t, strict=False)
+        except json.JSONDecodeError:
+            cleaned = re.sub(r'[\x00-\x1f\x7f]', lambda m: ' ' if m.group(0) in '\n\r\t' else '', t)
+            return json.loads(cleaned, strict=False)
 
     def _call_structured_engine(self, prompt: str) -> Dict[str, Any]:
         """
