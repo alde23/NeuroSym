@@ -80,8 +80,8 @@ class NeuroSymApp {
       });
     });
 
-    // Load Sessions Sidebar
-    this.loadSessions();
+    // Load Sessions Sidebar and restore active session if available
+    this.loadSessions(true);
   }
 
   getOrInitSessionId() {
@@ -99,11 +99,7 @@ class NeuroSymApp {
     localStorage.setItem('neurosym_theme', themeName);
   }
 
-  startNewChat() {
-    this.sessionId = 'session-' + Math.random().toString(36).substring(2, 10);
-    localStorage.setItem('neurosym_session_id', this.sessionId);
-    
-    // Clear Chat UI
+  renderWelcomeHero() {
     this.chatThread.innerHTML = `
       <div class="card-panel" style="text-align: center; padding: 32px 20px; margin-top: 20px;" id="welcome-hero">
         <h1 style="font-size: 22px; font-weight: 800; margin-bottom: 8px; background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
@@ -113,42 +109,75 @@ class NeuroSymApp {
           Evaluate your consortium structure against official General Annex B rules, compare budgets with 23,451 live CORDIS projects, and optimize your RIA/IA/CSA proposals.
         </p>
         <div class="suggestion-chips-container" style="justify-content: center;">
-          <button class="chip-btn quick-prompt-btn" data-prompt="We are forming a consortium of 4 partners in Germany, Netherlands, and Sweden for a 36-month Horizon Europe RIA in autonomous robotics.">
-            🤖 4-Partner AI Robotics RIA (36 Months)
+          <button class="chip-btn quick-prompt-btn" data-prompt="We are forming a consortium of 6 partners across Norway, Sweden, Finland, and Estonia for a 42-month CCUS (carbon capture) demonstration pilot. We are requesting €28,500,000 in EC funding. Please evaluate our application.">
+            🌍 CCUS €28.5M 6-Partner Demonstration Pilot
           </button>
-          <button class="chip-btn quick-prompt-btn" data-prompt="We are planning a 60-month Horizon Europe Research and Innovation Action with 2 partners in Germany.">
-            ⚠️ Infeasible 2-Partner Proposal Test
+          <button class="chip-btn quick-prompt-btn" data-prompt="What is the average and median budget for Horizon Europe projects in 2021?">
+            📊 2021 CORDIS Empirical Grant Benchmarks
           </button>
-          <button class="chip-btn quick-prompt-btn" data-prompt="What is the average and 95th percentile budget for climate tech Horizon Europe projects?">
-            📊 Climate Tech CORDIS Benchmarks
+          <button class="chip-btn quick-prompt-btn" data-prompt="What are the official General Annex B eligibility rules for Horizon Europe RIA?">
+            📜 General Annex B Statutory Rules
           </button>
         </div>
       </div>
     `;
 
     // Re-attach quick prompt buttons
-    document.querySelectorAll('.quick-prompt-btn').forEach(btn => {
+    this.chatThread.querySelectorAll('.quick-prompt-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const prompt = btn.getAttribute('data-prompt');
         this.userInput.value = prompt;
         this.handleSend();
       });
     });
-
-    this.updateStatusPill('FEASIBLE', 'Ready');
-    this.loadSessions();
   }
 
-  async loadSessions() {
+  startNewChat() {
+    this.sessionId = 'session-' + Math.random().toString(36).substring(2, 10);
+    localStorage.setItem('neurosym_session_id', this.sessionId);
+    
+    // Clear Chat UI and show welcome hero
+    this.renderWelcomeHero();
+    this.updateStatusPill('FEASIBLE', 'Ready');
+    this.resetDrawerToEmpty();
+    this.loadSessions(false);
+  }
+
+  resetDrawerToEmpty() {
+    this.drawerPartners.textContent = '-';
+    this.drawerDuration.textContent = '-';
+    this.drawerCountries.textContent = '-';
+    this.drawerBudget.textContent = '-';
+    this.drawerBudgetRank.textContent = '-';
+    this.drawerRulesList.innerHTML = '<div style="font-size: 13px; color: var(--text-dim); padding: 8px 0;">Awaiting proposal inquiry...</div>';
+    
+    const outlierBadge = document.getElementById('drawer-outlier-badge');
+    if (outlierBadge) outlierBadge.style.display = 'none';
+    const outlierAlert = document.getElementById('drawer-outlier-alert');
+    if (outlierAlert) outlierAlert.style.display = 'none';
+    const userStatItem = document.getElementById('user-stat-bar-item');
+    if (userStatItem) userStatItem.style.display = 'none';
+  }
+
+  async loadSessions(autoRestoreCurrent = false) {
     try {
       const res = await fetch('/api/sessions');
       if (!res.ok) return;
       const data = await res.json();
       
       this.sessionsList.innerHTML = '';
-      data.sessions.forEach(sess => {
+      const sessions = data.sessions || [];
+
+      if (sessions.length === 0) {
+        this.sessionsList.innerHTML = '<div style="font-size: 12px; color: var(--text-dim); padding: 10px 8px;">No past consultations yet.</div>';
+        return;
+      }
+
+      sessions.forEach(sess => {
         const item = document.createElement('div');
-        item.className = 'session-item' + (sess.session_id === this.sessionId ? ' active' : '');
+        const isActive = sess.session_id === this.sessionId;
+        item.className = 'session-item' + (isActive ? ' active' : '');
+        item.setAttribute('data-session-id', sess.session_id);
         
         let badgeClass = 'feasible';
         let badgeLabel = 'FEAS';
@@ -174,36 +203,78 @@ class NeuroSymApp {
           </div>
         `;
 
-        item.addEventListener('click', () => this.switchSession(sess.session_id));
+        item.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.switchSession(sess.session_id);
+        });
         this.sessionsList.appendChild(item);
       });
+
+      // Auto-restore session on page load if existing session found
+      if (autoRestoreCurrent) {
+        const hasCurrentSession = sessions.some(s => s.session_id === this.sessionId);
+        if (hasCurrentSession) {
+          this.switchSession(this.sessionId);
+        } else if (sessions.length > 0) {
+          // Default to most recent session
+          this.switchSession(sessions[0].session_id);
+        }
+      }
     } catch (e) {
       console.warn('Could not load sessions:', e);
     }
   }
 
   async switchSession(newSessionId) {
+    if (!newSessionId) return;
     this.sessionId = newSessionId;
     localStorage.setItem('neurosym_session_id', newSessionId);
     
+    // Update active highlight in sidebar immediately
+    const allItems = this.sessionsList.querySelectorAll('.session-item');
+    allItems.forEach(el => {
+      if (el.getAttribute('data-session-id') === newSessionId) {
+        el.classList.add('active');
+      } else {
+        el.classList.remove('active');
+      }
+    });
+
     try {
-      const res = await fetch(`/api/chat/${newSessionId}`);
-      if (!res.ok) return;
+      const res = await fetch(`/api/chat/${encodeURIComponent(newSessionId)}`);
+      if (!res.ok) {
+        console.warn(`Could not load session ${newSessionId}: HTTP ${res.status}`);
+        return;
+      }
       const sessionData = await res.json();
 
+      // Clear Chat Thread
       this.chatThread.innerHTML = '';
-      sessionData.messages.forEach(msg => {
-        this.appendMessageBubble(msg.role, msg.content, false);
-      });
 
-      if (sessionData.proposal_context) {
-        this.updateDrawerEvidence(sessionData.proposal_context, sessionData.latest_evidence);
+      if (!sessionData.messages || sessionData.messages.length === 0) {
+        this.renderWelcomeHero();
+      } else {
+        sessionData.messages.forEach((msg, idx) => {
+          const isLastAssistant = (msg.role === 'assistant' && idx === sessionData.messages.length - 1);
+          const bubble = this.appendMessageBubble(msg.role, msg.content, false);
+          if (isLastAssistant && msg.metadata && msg.metadata.suggested_followups) {
+            this.appendFollowupChips(bubble.rowElem, msg.metadata.suggested_followups);
+          }
+        });
       }
+
+      // Update drawer and header with context and evidence
+      const ctx = sessionData.proposal_context || {};
+      const evidence = sessionData.latest_evidence || {};
+      
+      this.updateDrawerEvidence(ctx, evidence);
+      
       if (sessionData.latest_verdict) {
         this.updateStatusPill(sessionData.latest_verdict);
+      } else {
+        this.updateStatusPill('FEASIBLE', 'Ready');
       }
 
-      this.loadSessions();
       this.scrollToBottom();
     } catch (e) {
       console.error('Error switching session:', e);
@@ -395,58 +466,68 @@ class NeuroSymApp {
       }
     }
 
-    if (data && data.regulatory_evidence) {
-      this.drawerRulesList.innerHTML = '';
-      data.regulatory_evidence.forEach(ruleStr => {
-        const item = document.createElement('div');
-        item.className = 'rule-item';
+    const ruleItems = [];
+    if (data && Array.isArray(data.rule_evaluations) && data.rule_evaluations.length > 0) {
+      data.rule_evaluations.forEach(r => {
+        const isViolation = (r.status === 'FAILED' && (r.severity === 'error' || r.severity === 'ERROR'));
+        const isCaution = (r.status === 'FAILED' && (r.severity === 'warning' || r.severity === 'WARNING'));
+        const icon = isViolation ? '❌' : (isCaution ? '⚠️' : '✅');
+        const statusBadge = isViolation 
+          ? '<span class="session-badge infeasible">VIOLATION</span>' 
+          : (isCaution ? '<span class="session-badge conditional">CAUTION</span>' : '<span class="session-badge feasible">PASSED</span>');
+        const itemClass = isViolation ? 'rule-item violation' : (isCaution ? 'rule-item caution' : 'rule-item');
         
-        let icon = '✅';
-        let statusBadge = '<span class="session-badge feasible">PASSED</span>';
-        let badgeType = 'compliant';
+        ruleItems.push(`
+          <div class="${itemClass}">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span style="font-weight: 700; font-size: 12px; color: var(--text-main);">${icon} ${r.rule_id} (${r.name})</span>
+              ${statusBadge}
+            </div>
+            <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.4;">${r.message || r.name}</div>
+          </div>
+        `);
+      });
+    } else if (data && Array.isArray(data.regulatory_evidence) && data.regulatory_evidence.length > 0) {
+      data.regulatory_evidence.forEach(ruleStr => {
+        const isViolation = ruleStr.includes('[VIOLATION]');
+        const isCaution = ruleStr.includes('[CAUTION]');
+        const icon = isViolation ? '❌' : (isCaution ? '⚠️' : '✅');
+        const statusBadge = isViolation 
+          ? '<span class="session-badge infeasible">VIOLATION</span>' 
+          : (isCaution ? '<span class="session-badge conditional">CAUTION</span>' : '<span class="session-badge feasible">PASSED</span>');
+        const itemClass = isViolation ? 'rule-item violation' : (isCaution ? 'rule-item caution' : 'rule-item');
 
-        if (ruleStr.includes('[VIOLATION]')) {
-          item.classList.add('violation');
-          icon = '❌';
-          statusBadge = '<span class="session-badge infeasible">VIOLATION</span>';
-          badgeType = 'violation';
-        } else if (ruleStr.includes('[CAUTION]')) {
-          item.classList.add('caution');
-          icon = '⚠️';
-          statusBadge = '<span class="session-badge conditional">CAUTION</span>';
-          badgeType = 'caution';
-        }
-
-        // Clean prefix
         const cleanText = ruleStr
           .replace('[VIOLATION] ', '')
           .replace('[CAUTION] ', '')
           .replace('[COMPLIANT] ', '');
 
-        // Extract rule id
         const ruleIdMatch = cleanText.match(/^([A-Z0-9\-]+)\s*\(([^)]+)\):\s*(.*)$/);
         if (ruleIdMatch) {
-          const rId = ruleIdMatch[1];
-          const rName = ruleIdMatch[2];
-          const rMsg = ruleIdMatch[3];
-          item.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <span style="font-weight: 700; font-size: 12px; color: var(--text-main);">${icon} ${rId} (${rName})</span>
-              ${statusBadge}
+          ruleItems.push(`
+            <div class="${itemClass}">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-weight: 700; font-size: 12px; color: var(--text-main);">${icon} ${ruleIdMatch[1]} (${ruleIdMatch[2]})</span>
+                ${statusBadge}
+              </div>
+              <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.4;">${ruleIdMatch[3]}</div>
             </div>
-            <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.4;">${rMsg}</div>
-          `;
+          `);
         } else {
-          item.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-              <span style="font-size: 12.5px; color: var(--text-main); line-height: 1.4;">${icon} ${cleanText}</span>
-              ${statusBadge}
+          ruleItems.push(`
+            <div class="${itemClass}">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                <span style="font-size: 12.5px; color: var(--text-main); line-height: 1.4;">${icon} ${cleanText}</span>
+                ${statusBadge}
+              </div>
             </div>
-          `;
+          `);
         }
-
-        this.drawerRulesList.appendChild(item);
       });
+    }
+
+    if (ruleItems.length > 0) {
+      this.drawerRulesList.innerHTML = ruleItems.join('');
     }
 
     if (data && data.domain_statistics) {

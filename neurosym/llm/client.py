@@ -292,17 +292,141 @@ class LLMClient:
         without active external API keys or when external APIs fail.
         Parses actual extracted context, baseline verdict, and CORDIS empirical statistics directly from prompt.
         """
-        # If it's chat advisor prompt
-        if "Senior Horizon Europe Grants & Feasibility Advisory AI" in prompt:
+        # 1. CORDIS Data / Statistical Query Prompt Fallback
+        if "USER DATA INQUIRY:" in prompt or "LIVE CORDIS DUCKDB QUERY RESULTS" in prompt:
+            filters_summary = "All Horizon Europe Projects"
+            filters_match = re.search(r"Filters Applied:\s*([^\n]+)", prompt)
+            if filters_match:
+                filters_summary = filters_match.group(1).strip()
+
+            count_match = re.search(r"Total Matching Projects:\s*(\d+)", prompt)
+            total_count = int(count_match.group(1)) if count_match else 0
+
+            avg_match = re.search(r"Average EU Grant:\s*€([\d,]+(?:\.\d+)?)", prompt)
+            avg_budget = avg_match.group(1) if avg_match else None
+
+            med_match = re.search(r"Median EU Grant \(P50\):\s*€([\d,]+(?:\.\d+)?)", prompt)
+            med_budget = med_match.group(1) if med_match else None
+
+            min_match = re.search(r"Minimum EU Grant:\s*€([\d,]+(?:\.\d+)?)", prompt)
+            min_budget = min_match.group(1) if min_match else None
+
+            max_match = re.search(r"Maximum EU Grant:\s*€([\d,]+(?:\.\d+)?)", prompt)
+            max_budget = max_match.group(1) if max_match else None
+
+            dur_match = re.search(r"Average Duration:\s*([\d\.]+)\s*months", prompt)
+            avg_duration = dur_match.group(1) if dur_match else None
+
+            reply_parts = [
+                f"### CORDIS Empirical Analytics: {filters_summary}\n",
+                f"Based on historical Horizon Europe research actions recorded in the official CORDIS database:\n",
+                f"- **Total Funded Projects**: **{total_count:,}**",
+            ]
+            if avg_budget:
+                reply_parts.append(f"- **Average EU Contribution**: **€{avg_budget}**")
+            if med_budget:
+                reply_parts.append(f"- **Cohort Median (P50)**: **€{med_budget}**")
+            if min_budget and max_budget:
+                reply_parts.append(f"- **Grant Contribution Range**: **€{min_budget}** to **€{max_budget}**")
+            if avg_duration:
+                reply_parts.append(f"- **Average Execution Timeline**: **{avg_duration} months**")
+
+            # Extract sample projects if present
+            if "SAMPLE MATCHING PROJECTS IN CORDIS:" in prompt:
+                samples_text = prompt.split("SAMPLE MATCHING PROJECTS IN CORDIS:")[1].split("###")[0].strip()
+                if samples_text:
+                    reply_parts.append("\n**Key Benchmark Actions in this Cohort:**\n" + samples_text)
+
+            return {
+                "reply": "\n".join(reply_parts),
+                "verdict": "FEASIBLE",
+                "suggested_followups": [
+                    "What is the average grant size for Horizon Europe RIA projects?",
+                    "How many projects in this topic have budgets exceeding €10M?",
+                    "Evaluate our proposal against this historical cohort"
+                ]
+            }
+
+        # 2. Strategy / Advisory Follow-up Prompt Fallback
+        if "CURRENT STRATEGY / ADVISORY QUESTION:" in prompt:
+            question = ""
+            try:
+                question = prompt.split("CURRENT STRATEGY / ADVISORY QUESTION:")[1].split("###")[0].strip(' "\n')
+            except Exception:
+                question = "proposal advisory"
+
+            budget_match = re.search(r"Requested Budget:\s*€([\d,]+(?:\.\d+)?)", prompt)
+            budget_str = f"€{budget_match.group(1)}" if budget_match else "your requested grant"
+
+            partner_match = re.search(r"Consortium:\s*(\d+)\s*partners", prompt)
+            p_count = partner_match.group(1) if partner_match else "6"
+
+            topic_match = re.search(r"Domain Topic:\s*([^\n]+)", prompt)
+            topic = topic_match.group(1).strip() if topic_match else "demonstration pilot"
+
+            reply = (
+                f"### Strategic Advisory: {question}\n\n"
+                f"To structure and justify the **{budget_str}** budget for your **{p_count}-partner {topic}** consortium, we recommend structuring your proposal around the following operational architecture:\n\n"
+                f"#### 1. Recommended Work Package (WP) Architecture\n"
+                f"- **WP1: Project Management, Governance & Quality Assurance** (3–5% of budget) — Consortium coordination, contractual management, risk mitigation, and reporting.\n"
+                f"- **WP2: Pilot Plant Design, Infrastructure & Site Preparation (CAPEX)** (40–50% of budget) — Procurement of specialized equipment, industrial site integration, and physical construction.\n"
+                f"- **WP3: Commissioning, Operational Testing & Scale-Up (OPEX)** (20–25% of budget) — System operation, performance testing across industrial conditions, and energy efficiency optimization.\n"
+                f"- **WP4: Performance Verification, Techno-Economic Analysis (TEA) & LCA** (8–10% of budget) — Third-party verification of capture efficiency, lifecycle assessment, and levelized cost modeling.\n"
+                f"- **WP5: Industrial Exploitation, Replication & Business Case** (5–8% of budget) — Market uptake strategy, IP protection, and EU-wide industrial deployment roadmap.\n"
+                f"- **WP6: Safety, Permitting, Regulatory Compliance & Public Engagement** (4–6% of budget) — Environmental approvals, cross-border compliance, and stakeholder outreach.\n\n"
+                f"#### 2. Evaluator Scrutiny & Co-Funding Opportunities\n"
+                f"- **Industrial Co-Investment**: Demonstrating substantial in-kind contributions and CAPEX co-financing from industrial partners directly resolves evaluator budget realism concerns.\n"
+                f"- **Synergy with the EU Innovation Fund**: Large-scale pilots can leverage Horizon Europe for research & initial demonstration, with follow-on CAPEX scaling via the EU Innovation Fund."
+            )
+
+            return {
+                "reply": reply,
+                "verdict": "CONDITIONALLY FEASIBLE",
+                "suggested_followups": [
+                    "How should budget be distributed between research institutions and industry?",
+                    "What criteria do Horizon Europe evaluators use for CAPEX vs OPEX justification?",
+                    "How can we benchmark our deliverables against historical CORDIS projects?"
+                ]
+            }
+
+        # 3. Regulatory Inquiry Prompt Fallback
+        if "USER REGULATORY INQUIRY:" in prompt:
+            reply = (
+                "### Official Horizon Europe Eligibility & General Annex B Framework\n\n"
+                "Under the standard legal framework for Horizon Europe Research and Innovation Actions (RIA) and Innovation Actions (IA):\n\n"
+                "1. **Consortium Scale & Independence (Rule R-001)**: The consortium must comprise at least **3 independent legal entities**.\n"
+                "2. **Geographic Diversity (Rule R-002)**: Entities must be established in at least **3 different eligible countries** (EU Member States or Associated Countries).\n"
+                "3. **EU Member State Presence (Rule R-003)**: At least **1 legal entity** must be established in an **EU Member State** (EU27).\n"
+                "4. **Eligible Jurisdictions (Rule R-005)**: Entities must belong to EU Member States, Associated Countries (e.g. Norway, Iceland, UK, Israel, Turkey), or eligible third-country agreements.\n"
+                "5. **Project Duration (Rule R-008)**: Standard RIA/IA actions have an execution timeline of **36 to 48 months**.\n\n"
+                "*Legal Reference: Horizon Europe Regulation (EU) 2021/695 & Work Programme General Annex B.*"
+            )
+            return {
+                "reply": reply,
+                "verdict": "FEASIBLE",
+                "suggested_followups": [
+                    "Which countries qualify as Horizon Europe Associated Countries?",
+                    "What are the funding rates for SMEs in Innovation Actions (IA)?",
+                    "Evaluate our consortium against these General Annex B rules"
+                ]
+            }
+
+        # 4. Proposal Feasibility Evaluation Prompt
+        if "Senior Horizon Europe Grants & Feasibility Advisory AI" in prompt or "PROPOSAL EVALUATION" in prompt:
             user_inquiry = ""
             if "### CURRENT USER INQUIRY:" in prompt:
                 try:
                     user_inquiry = prompt.split("### CURRENT USER INQUIRY:")[1].split("###")[0].strip(' "\n')
                 except Exception:
                     user_inquiry = ""
+            elif "### CURRENT PROPOSAL EVALUATION INQUIRY:" in prompt:
+                try:
+                    user_inquiry = prompt.split("### CURRENT PROPOSAL EVALUATION INQUIRY:")[1].split("###")[0].strip(' "\n')
+                except Exception:
+                    user_inquiry = ""
 
             # 1. Parse Baseline Verdict if present
-            verdict_match = re.search(r"### DETERMINISTIC BASELINE VERDICT & RATIONALE:\s*\n-\s*Verdict:\s*([A-Z_ ]+)", prompt)
+            verdict_match = re.search(r"### DETERMINISTIC BASELINE VERDICT & (?:RATIONALE|FINDINGS):\s*\n-\s*Verdict:\s*([A-Z_ ]+)", prompt)
             baseline_verdict = verdict_match.group(1).strip() if verdict_match else None
 
             # 2. Extract fields from prompt context
