@@ -89,12 +89,47 @@ class NeuroSymChatAgent:
         if not turn_context.is_domain_relevant and not has_prior_domain_context:
             return "OUT_OF_DOMAIN"
 
-        # Explicit Proposal Evaluation triggers or proposal parameter updates (countries, partners, budget, duration)
-        eval_triggers = ["evaluate", "evaluate our", "assess our", "feasibility", "consortium of", "forming a consortium", "partner across", "partners across", "submit a"]
-        if any(trig in p_lower for trig in eval_triggers) or len(turn_context.countries) > 0 or turn_context.partner_count or turn_context.requested_budget_eur:
+        # Explicit Proposal Evaluation triggers (fresh submissions or explicit evaluation commands)
+        eval_triggers = [
+            "evaluate our", "assess our", "feasibility assessment", "consortium of", "forming a consortium", 
+            "submit our", "evaluate this proposal", "please evaluate", "evaluate application"
+        ]
+        is_explicit_eval = any(trig in p_lower for trig in eval_triggers)
+
+        # In an ongoing consultation with prior context:
+        if has_prior_domain_context:
+            # If user explicitly asks for re-evaluation, run proposal evaluation
+            if is_explicit_eval:
+                return "PROPOSAL_EVALUATION"
+
+            # Check CORDIS Data / Statistical Query triggers
+            data_triggers = [
+                "average budget", "average grant", "average cost", "median budget", "mean budget",
+                "how many projects", "projects in 202", "budget for projects", "projects funded in",
+                "statistics for", "projects with budget", "highest funded", "top funded", "show me projects",
+                "search projects", "list projects", "find projects", "what is the average", "expected budget range",
+                "budget range based on past"
+            ]
+            if any(dt in p_lower for dt in data_triggers):
+                return "DATA_QUERY"
+
+            # Check Regulatory & Policy Inquiry triggers
+            reg_triggers = [
+                "what are the rules", "annex b rules", "eligibility rules", "eligibility criteria",
+                "can switzerland", "can swiss", "can uk", "can associated", "minimum partners",
+                "difference between ria and ia", "what is lump sum", "general annex b rules"
+            ]
+            if any(rt in p_lower for rt in reg_triggers):
+                return "REGULATORY_INQUIRY"
+
+            # All other questions/modifications in an active consultation are strategic follow-ups
+            return "STRATEGY_FOLLOWUP"
+
+        # If NO prior context (initial turn):
+        if is_explicit_eval or len(turn_context.countries) > 0 or turn_context.partner_count or turn_context.requested_budget_eur:
             return "PROPOSAL_EVALUATION"
 
-        # CORDIS Data / Statistical Query triggers
+        # CORDIS Data query
         data_triggers = [
             "average budget", "average grant", "average cost", "median budget", "mean budget",
             "how many projects", "projects in 202", "budget for projects", "projects funded in",
@@ -105,7 +140,7 @@ class NeuroSymChatAgent:
         if any(dt in p_lower for dt in data_triggers):
             return "DATA_QUERY"
 
-        # Regulatory & Policy Inquiry triggers
+        # Regulatory inquiry
         reg_triggers = [
             "what are the rules", "annex b rules", "eligibility rules", "eligibility criteria",
             "can switzerland", "can swiss", "can uk", "can associated", "minimum partners",
@@ -113,15 +148,6 @@ class NeuroSymChatAgent:
         ]
         if any(rt in p_lower for rt in reg_triggers):
             return "REGULATORY_INQUIRY"
-
-        # Follow-up Strategy Consultation (when active proposal already exists)
-        followup_triggers = [
-            "work package", "breakdown", "justify", "co-funding", "innovation fund",
-            "alternative", "alternatives", "partner workload", "consortium composition",
-            "how can we improve", "how do we justify", "what should we change", "recommendations"
-        ]
-        if has_prior_domain_context and any(ft in p_lower for ft in followup_triggers):
-            return "STRATEGY_FOLLOWUP"
 
         return "STRATEGY_FOLLOWUP" if has_prior_domain_context else "DATA_QUERY"
 
@@ -235,7 +261,11 @@ class NeuroSymChatAgent:
                 avg_duration_months=data_context.get("avg_duration_months", 36.0)
             )
 
-        session.messages.append(ChatMessage(role="assistant", content=reply_text, metadata={"intent": "DATA_QUERY"}))
+        session.messages.append(ChatMessage(
+            role="assistant", 
+            content=reply_text, 
+            metadata={"intent": "DATA_QUERY", "suggested_followups": followups}
+        ))
         return ChatResponse(
             session_id=session.session_id,
             reply=reply_text,
@@ -280,7 +310,11 @@ class NeuroSymChatAgent:
                 "Evaluate our consortium against these General Annex B rules"
             ]
 
-        session.messages.append(ChatMessage(role="assistant", content=reply_text, metadata={"intent": "REGULATORY_INQUIRY"}))
+        session.messages.append(ChatMessage(
+            role="assistant", 
+            content=reply_text, 
+            metadata={"intent": "REGULATORY_INQUIRY", "suggested_followups": followups}
+        ))
         return ChatResponse(
             session_id=session.session_id,
             reply=reply_text,
@@ -293,8 +327,14 @@ class NeuroSymChatAgent:
     def _handle_strategy_followup(self, user_message: str, session: ChatSession, turn_context: ProposalContext) -> ChatResponse:
         """Handles focused strategic follow-ups within an active consultation without repeating boilerplate checklist."""
         # Merge any minor parameters if provided
-        if turn_context.requested_budget_eur or turn_context.partner_count or turn_context.countries:
+        if turn_context.requested_budget_eur or turn_context.partner_count or turn_context.countries or turn_context.requested_duration_months:
             self._accumulate_proposal_context(session.proposal_context, turn_context)
+            summary_prompt = self._build_context_summary_prompt(session.proposal_context)
+            evidence = self.evidence_runtime.gather_evidence(summary_prompt)
+            evidence.proposal_context = session.proposal_context
+            session.latest_evidence = evidence
+            base_report = self.deterministic_synthesizer.synthesize(evidence)
+            session.latest_verdict = base_report.verdict
 
         template = self.jinja_env.get_template("strategy_followup_prompt.j2")
         rendered_prompt = template.render(
@@ -313,31 +353,109 @@ class NeuroSymChatAgent:
             budget_str = f"€{p.requested_budget_eur:,.2f}" if p.requested_budget_eur else "your requested budget"
             p_count = p.partner_count or 6
             topic = p.domain_topic or "pilot demonstration"
+            q_lower = user_message.lower()
 
-            reply_text = (
-                f"### Strategic Advisory: {user_message.strip('?. ')}\n\n"
-                f"To structure and justify the **{budget_str}** budget for your **{p_count}-partner {topic}** consortium, we recommend aligning your proposal with the following operational framework:\n\n"
-                f"#### 1. Recommended Work Package (WP) Architecture\n"
-                f"- **WP1: Project Management, Governance & Quality Assurance** (3–5% of budget) — Consortium coordination, financial reporting, and risk mitigation.\n"
-                f"- **WP2: Pilot Plant Design, Engineering & Site Preparation (CAPEX)** (40–50% of budget) — Procurement of long-lead equipment, infrastructure installation, and industrial site integration.\n"
-                f"- **WP3: Commissioning, Operational Testing & Scale-Up (OPEX)** (20–25% of budget) — Continuous operation, feedstock testing, energy efficiency optimization, and capture rate validation.\n"
-                f"- **WP4: Performance Verification, Techno-Economic Analysis (TEA) & LCA** (8–10% of budget) — Independent TRL assessment, lifecycle carbon accounting, and levelized cost calculations.\n"
-                f"- **WP5: Exploitation, Industrial Replication & Business Modeling** (5–8% of budget) — Commercial rollout plan, IP strategy, and regional deployment roadmaps.\n"
-                f"- **WP6: Safety, Permitting, Regulatory Compliance & Public Acceptance** (4–6% of budget) — Environmental permitting, cross-border CO2 transport compliance, and stakeholder engagement.\n\n"
-                f"#### 2. Evaluator Scrutiny & Co-Funding Strategies\n"
-                f"- **Industrial Co-Investment**: Demonstrate substantial in-kind contributions and CAPEX co-financing from industrial partners to address cost-realism concerns.\n"
-                f"- **Synergy with EU Innovation Fund**: Large demonstration pilots can combine Horizon Europe RIA/IA research funding with the EU Innovation Fund (Large-Scale Projects) for long-term operational scaling."
-            )
+            if any(k in q_lower for k in ["countr", "eligible", "add", "fix", "annex b", "structure", "composition", "member state"]):
+                reply_text = (
+                    f"### Consortium Optimization & Eligibility Strategy: {user_message.strip('?. ')}\n\n"
+                    f"To ensure robust eligibility and maximum competitiveness under **General Annex B** for your **{topic}** initiative:\n\n"
+                    f"#### 1. Geographic & Legal Composition Requirements\n"
+                    f"- **Mandatory Core**: You must include at least **3 independent legal entities** established in **3 different eligible countries**, with at least **1 from an EU Member State (EU27)**.\n"
+                    f"- **Country Classification in Your Profile**: Countries like **Norway (NO)** and **Iceland (IS)** are *Associated Countries*, while **Estonia (EE)**, **Finland (FI)**, and **Sweden (SE)** are *EU27 Member States*.\n"
+                    f"- **Strategic Partner Additions**: If expanding your consortium from {p_count} partners, prioritize adding industrial end-users or testbed operators from high-TRL industrial regions (e.g., **Germany (DE)**, **France (FR)**, **Netherlands (NL)**, or **Italy (IT)**) to reinforce European deployment coverage.\n\n"
+                    f"#### 2. Consortium Balance & Role Allocations\n"
+                    f"- **Work Package Leadership**: Distribute WP leads evenly across academic/RTO research pillars and industrial test sites.\n"
+                    f"- **SME & Industrial Integration**: Ensure at least 1–2 high-growth innovative SMEs participate to lead exploitation and commercial scale-up."
+                )
+                followups = [
+                    "What work package breakdown justifies our pilot budget?",
+                    "How should budget be distributed between research institutions and industry?",
+                    "What co-funding or Innovation Fund alternatives exist for large pilots?"
+                ]
+            elif any(k in q_lower for k in ["split", "industry", "research", "distribut", "rate", "sme", "partner"]):
+                reply_text = (
+                    f"### Financial Distribution & Partner Budget Allocation\n\n"
+                    f"For a **{budget_str}** Horizon Europe proposal with **{p_count} partners**:\n\n"
+                    f"#### 1. Recommended Financial Distribution Model\n"
+                    f"- **Academic / RTO Research Partners (30–40%)**: Focused on methodology, validation, lifecycle assessment (LCA), and fundamental IP creation (funded at **100% direct costs + 25% indirect overhead**).\n"
+                    f"- **Industrial & Demonstration Partners (45–55%)**: Covering pilot facility integration, equipment commissioning, CAPEX/OPEX operations, and raw materials (funded at **70% for for-profit entities under Innovation Actions**, or **100% under Research & Innovation Actions**).\n"
+                    f"- **SMEs & Dissemination Partners (10–15%)**: Leading business modeling, regulatory certification, cross-border exploitation, and stakeholder communication.\n\n"
+                    f"#### 2. Evaluator Cost Realism Safeguards\n"
+                    f"- **Personnel vs. Subcontracting**: Keep subcontracting strictly under 10–15% of total budget and justify all external specialized engineering contracts.\n"
+                    f"- **Equipment Depreciation**: Ensure large capital hardware is claimed based on eligible project depreciation periods rather than full purchase price."
+                )
+                followups = [
+                    "What criteria do Horizon Europe evaluators use for CAPEX vs OPEX justification?",
+                    "What co-funding or Innovation Fund alternatives exist for our pilot?",
+                    "What work package breakdown justifies our requested budget?"
+                ]
+            elif any(k in q_lower for k in ["co-funding", "innovation fund", "alternative", "alternatives", "funding", "private"]):
+                reply_text = (
+                    f"### Co-Funding & Complementary European Grant Instruments\n\n"
+                    f"For capital-intensive **{topic}** projects requesting high budgets ({budget_str}):\n\n"
+                    f"#### 1. Synergistic EU Funding Streams\n"
+                    f"- **EU Innovation Fund (Large & Small-Scale Projects)**: Specifically tailored for flagship demonstration pilots and first-of-a-kind commercial plants (TRL 7–9), offering up to **60% capital and operational expenditure grants** with no ceiling limit.\n"
+                    f"- **Horizon Europe Clean Hydrogen / Clean Steel / Net-Zero Partnerships**: Co-programmed partnerships where industrial consortia match EU funding with private in-kind contributions.\n"
+                    f"- **Important Projects of Common European Interest (IPCEI)**: State-aid approved national funding schemes allowing Member States to co-fund breakthrough industrial infrastructure.\n\n"
+                    f"#### 2. Blended Finance Strategy\n"
+                    f"- Use Horizon Europe RIA/IA (TRL 4–7) to finance core research, testing protocols, and safety compliance.\n"
+                    f"- Transition scale-up infrastructure to the EU Innovation Fund or national energy transition grants."
+                )
+                followups = [
+                    "What work package breakdown justifies our requested budget?",
+                    "How should budget be distributed between research institutions and industry?",
+                    "What criteria do Horizon Europe evaluators use for CAPEX vs OPEX justification?"
+                ]
+            elif any(k in q_lower for k in ["capex", "opex", "justif", "criteria", "evaluator"]):
+                reply_text = (
+                    f"### Evaluator Assessment Criteria for CAPEX & OPEX Justification\n\n"
+                    f"Horizon Europe expert evaluators review budget realism under the **Implementation** scoring criterion (0–5 points):\n\n"
+                    f"#### 1. Eligible Equipment & Depreciation Rules\n"
+                    f"- **Depreciation Only (Standard Rule)**: Under standard Horizon Europe General Model Grant Agreements (MGA), equipment purchases must be depreciated over the project duration ({p_count} partners, 36–48 months) in accordance with national accounting standards.\n"
+                    f"- **Full Equipment Cost Eligibility**: Only applicable if explicitly authorized by the specific call topic text (e.g. specialized pilot infrastructure calls).\n\n"
+                    f"#### 2. Demonstration OPEX & Consumables\n"
+                    f"- Justify raw material costs, energy inputs, and continuous testing hours with detailed Person-Month (PM) calculations.\n"
+                    f"- Include explicit contingency and risk mitigation tables for supply chain or long-lead equipment delays."
+                )
+                followups = [
+                    "What work package breakdown justifies our pilot budget?",
+                    "How should budget be distributed between research institutions and industry?",
+                    "What co-funding or Innovation Fund alternatives exist for large pilots?"
+                ]
+            else:
+                reply_text = (
+                    f"### Strategic Advisory: {user_message.strip('?. ')}\n\n"
+                    f"To structure and justify the **{budget_str}** budget for your **{p_count}-partner {topic}** consortium, we recommend aligning your proposal with the following operational framework:\n\n"
+                    f"#### 1. Recommended Work Package (WP) Architecture\n"
+                    f"- **WP1: Project Management, Governance & Quality Assurance** (3–5% of budget) — Consortium coordination, financial reporting, and risk mitigation.\n"
+                    f"- **WP2: Pilot Plant Design, Engineering & Site Preparation (CAPEX)** (40–50% of budget) — Procurement of long-lead equipment, infrastructure installation, and industrial site integration.\n"
+                    f"- **WP3: Commissioning, Operational Testing & Scale-Up (OPEX)** (20–25% of budget) — Continuous operation, feedstock testing, energy efficiency optimization, and capture rate validation.\n"
+                    f"- **WP4: Performance Verification, Techno-Economic Analysis (TEA) & LCA** (8–10% of budget) — Independent TRL assessment, lifecycle carbon accounting, and levelized cost calculations.\n"
+                    f"- **WP5: Exploitation, Industrial Replication & Business Modeling** (5–8% of budget) — Commercial rollout plan, IP strategy, and regional deployment roadmaps.\n"
+                    f"- **WP6: Safety, Permitting, Regulatory Compliance & Public Acceptance** (4–6% of budget) — Environmental permitting, cross-border CO2 transport compliance, and stakeholder engagement.\n\n"
+                    f"#### 2. Evaluator Scrutiny & Co-Funding Strategies\n"
+                    f"- **Industrial Co-Investment**: Demonstrate substantial in-kind contributions and CAPEX co-financing from industrial partners to address cost-realism concerns.\n"
+                    f"- **Synergy with EU Innovation Fund**: Large demonstration pilots can combine Horizon Europe RIA/IA research funding with the EU Innovation Fund (Large-Scale Projects) for long-term operational scaling."
+                )
+                followups = [
+                    "How should we distribute budget between research and industrial partners?",
+                    "What criteria do Horizon Europe evaluators use for CAPEX vs OPEX?",
+                    "How can we benchmark our deliverables against historical projects?"
+                ]
+        else:
+            followups = raw_output.get("suggested_followups", []) if isinstance(raw_output, dict) else []
+            if not followups:
+                followups = [
+                    "How should we distribute budget between research and industrial partners?",
+                    "What criteria do Horizon Europe evaluators use for CAPEX vs OPEX?",
+                    "How can we benchmark our deliverables against historical projects?"
+                ]
 
-        followups = raw_output.get("suggested_followups", []) if isinstance(raw_output, dict) else []
-        if not followups:
-            followups = [
-                "How should we distribute budget between research and industrial partners?",
-                "What criteria do Horizon Europe evaluators use for CAPEX vs OPEX?",
-                "How can we benchmark our deliverables against historical projects?"
-            ]
-
-        session.messages.append(ChatMessage(role="assistant", content=reply_text, metadata={"intent": "STRATEGY_FOLLOWUP"}))
+        session.messages.append(ChatMessage(
+            role="assistant", 
+            content=reply_text, 
+            metadata={"intent": "STRATEGY_FOLLOWUP", "suggested_followups": followups}
+        ))
         return ChatResponse(
             session_id=session.session_id,
             reply=reply_text,
@@ -420,7 +538,7 @@ class NeuroSymChatAgent:
         session.messages.append(ChatMessage(
             role="assistant",
             content=reply_text,
-            metadata={"verdict": final_verdict.value, "intent": "PROPOSAL_EVALUATION"}
+            metadata={"verdict": final_verdict.value, "intent": "PROPOSAL_EVALUATION", "suggested_followups": suggested_followups}
         ))
 
         return ChatResponse(

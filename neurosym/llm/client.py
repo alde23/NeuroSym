@@ -17,23 +17,23 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 logger = logging.getLogger(__name__)
 
 GEMINI_MODELS = [
-    "gemini-2.5-flash",
+    "gemini-3.6-flash",
     "gemini-2.0-flash",
     "gemini-1.5-flash",
-    "gemini-flash-latest",
-    "gemini-3.6-flash"
+    "gemini-flash-latest"
 ]
 
 GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768"
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.6-27b",
+    "llama-3.3-70b-versatile"
 ]
 
 OPENROUTER_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemini-2.0-flash-exp:free",
-    "deepseek/deepseek-r1:free"
+    "nvidia/nemotron-3.5-lightning:free",
+    "inclusionai/ling-3.0-flash-vl:free",
+    "dots-studio/dots-3-note-preview:free"
 ]
 
 
@@ -183,12 +183,14 @@ class LLMClient:
         for model_name in models_to_try:
             payload = {
                 "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": "You are the specialized NeuroSym Horizon Europe AI advisor. Always respond with strictly valid JSON matching the requested schema."},
+                    {"role": "user", "content": prompt}
+                ],
                 "temperature": 0.1
             }
             try:
-                with httpx.Client(timeout=25.0) as client:
+                with httpx.Client(timeout=8.0) as client:
                     resp = client.post(url, headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -202,7 +204,7 @@ class LLMClient:
                         logger.warning(f"Groq returned {resp.status_code}: {resp.text[:150]}")
             except Exception as e:
                 logger.warning(f"Groq API call error: {e}")
-                return None
+                continue
 
         return None
 
@@ -221,12 +223,14 @@ class LLMClient:
         for model_name in OPENROUTER_MODELS:
             payload = {
                 "model": model_name,
-                "messages": [{"role": "user", "content": prompt}],
-                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": "You are the specialized NeuroSym Horizon Europe AI advisor. Always respond with strictly valid JSON matching the requested schema."},
+                    {"role": "user", "content": prompt}
+                ],
                 "temperature": 0.1
             }
             try:
-                with httpx.Client(timeout=30.0) as client:
+                with httpx.Client(timeout=8.0) as client:
                     resp = client.post(url, headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -237,7 +241,7 @@ class LLMClient:
                         return None
             except Exception as e:
                 logger.warning(f"OpenRouter call error: {e}")
-                return None
+                continue
 
         return None
 
@@ -355,6 +359,7 @@ class LLMClient:
             except Exception:
                 question = "proposal advisory"
 
+            q_lower = question.lower()
             budget_match = re.search(r"Requested Budget:\s*€([\d,]+(?:\.\d+)?)", prompt)
             budget_str = f"€{budget_match.group(1)}" if budget_match else "your requested grant"
 
@@ -364,29 +369,102 @@ class LLMClient:
             topic_match = re.search(r"Domain Topic:\s*([^\n]+)", prompt)
             topic = topic_match.group(1).strip() if topic_match else "demonstration pilot"
 
-            reply = (
-                f"### Strategic Advisory: {question}\n\n"
-                f"To structure and justify the **{budget_str}** budget for your **{p_count}-partner {topic}** consortium, we recommend structuring your proposal around the following operational architecture:\n\n"
-                f"#### 1. Recommended Work Package (WP) Architecture\n"
-                f"- **WP1: Project Management, Governance & Quality Assurance** (3–5% of budget) — Consortium coordination, contractual management, risk mitigation, and reporting.\n"
-                f"- **WP2: Pilot Plant Design, Infrastructure & Site Preparation (CAPEX)** (40–50% of budget) — Procurement of specialized equipment, industrial site integration, and physical construction.\n"
-                f"- **WP3: Commissioning, Operational Testing & Scale-Up (OPEX)** (20–25% of budget) — System operation, performance testing across industrial conditions, and energy efficiency optimization.\n"
-                f"- **WP4: Performance Verification, Techno-Economic Analysis (TEA) & LCA** (8–10% of budget) — Third-party verification of capture efficiency, lifecycle assessment, and levelized cost modeling.\n"
-                f"- **WP5: Industrial Exploitation, Replication & Business Case** (5–8% of budget) — Market uptake strategy, IP protection, and EU-wide industrial deployment roadmap.\n"
-                f"- **WP6: Safety, Permitting, Regulatory Compliance & Public Engagement** (4–6% of budget) — Environmental approvals, cross-border compliance, and stakeholder outreach.\n\n"
-                f"#### 2. Evaluator Scrutiny & Co-Funding Opportunities\n"
-                f"- **Industrial Co-Investment**: Demonstrating substantial in-kind contributions and CAPEX co-financing from industrial partners directly resolves evaluator budget realism concerns.\n"
-                f"- **Synergy with the EU Innovation Fund**: Large-scale pilots can leverage Horizon Europe for research & initial demonstration, with follow-on CAPEX scaling via the EU Innovation Fund."
-            )
+            countries_match = re.search(r"across\s*([^\n]+)", prompt)
+            countries_str = countries_match.group(1).strip() if countries_match else "your partner countries"
 
-            return {
-                "reply": reply,
-                "verdict": "CONDITIONALLY FEASIBLE",
-                "suggested_followups": [
+            # Route to specific question strategy
+            if any(k in q_lower for k in ["countr", "eligible", "add", "fix", "annex b", "structure", "composition", "member state"]):
+                reply = (
+                    f"### Consortium Optimization & Eligibility Strategy: {question}\n\n"
+                    f"To ensure robust eligibility and maximum competitiveness under **General Annex B** for your **{topic}** initiative:\n\n"
+                    f"#### 1. Geographic & Legal Composition Requirements\n"
+                    f"- **Mandatory Core**: You must include at least **3 independent legal entities** established in **3 different eligible countries**, with at least **1 from an EU Member State (EU27)**.\n"
+                    f"- **Country Classification in Your Profile**: Countries like **Norway (NO)** and **Iceland (IS)** are *Associated Countries*, while **Estonia (EE)**, **Finland (FI)**, and **Sweden (SE)** are *EU27 Member States*.\n"
+                    f"- **Strategic Partner Additions**: If expanding your consortium from {p_count} partners, prioritize adding industrial end-users or testbed operators from high-TRL industrial regions (e.g., **Germany (DE)**, **France (FR)**, **Netherlands (NL)**, or **Italy (IT)**) to reinforce European deployment coverage.\n\n"
+                    f"#### 2. Consortium Balance & Role Allocations\n"
+                    f"- **Work Package Leadership**: Distribute WP leads evenly across academic/RTO research pillars and industrial test sites.\n"
+                    f"- **SME & Industrial Integration**: Ensure at least 1–2 high-growth innovative SMEs participate to lead exploitation and commercial scale-up."
+                )
+                followups = [
+                    "What work package breakdown justifies our pilot budget?",
+                    "How should budget be distributed between research institutions and industry?",
+                    "What co-funding or Innovation Fund alternatives exist for large pilots?"
+                ]
+            elif any(k in q_lower for k in ["split", "industry", "research", "distribut", "rate", "sme", "partner"]):
+                reply = (
+                    f"### Financial Distribution & Partner Budget Allocation\n\n"
+                    f"For a **{budget_str}** Horizon Europe proposal with **{p_count} partners**:\n\n"
+                    f"#### 1. Recommended Financial Distribution Model\n"
+                    f"- **Academic / RTO Research Partners (30–40%)**: Focused on methodology, validation, lifecycle assessment (LCA), and fundamental IP creation (funded at **100% direct costs + 25% indirect overhead**).\n"
+                    f"- **Industrial & Demonstration Partners (45–55%)**: Covering pilot facility integration, equipment commissioning, CAPEX/OPEX operations, and raw materials (funded at **70% for for-profit entities under Innovation Actions**, or **100% under Research & Innovation Actions**).\n"
+                    f"- **SMEs & Dissemination Partners (10–15%)**: Leading business modeling, regulatory certification, cross-border exploitation, and stakeholder communication.\n\n"
+                    f"#### 2. Evaluator Cost Realism Safeguards\n"
+                    f"- **Personnel vs. Subcontracting**: Keep subcontracting strictly under 10–15% of total budget and justify all external specialized engineering contracts.\n"
+                    f"- **Equipment Depreciation**: Ensure large capital hardware is claimed based on eligible project depreciation periods rather than full purchase price."
+                )
+                followups = [
+                    "What criteria do Horizon Europe evaluators use for CAPEX vs OPEX justification?",
+                    "What co-funding or Innovation Fund alternatives exist for our pilot?",
+                    "What work package breakdown justifies our requested budget?"
+                ]
+            elif any(k in q_lower for k in ["co-funding", "innovation fund", "alternative", "alternatives", "funding", "private"]):
+                reply = (
+                    f"### Co-Funding & Complementary European Grant Instruments\n\n"
+                    f"For capital-intensive **{topic}** projects requesting high budgets ({budget_str}):\n\n"
+                    f"#### 1. Synergistic EU Funding Streams\n"
+                    f"- **EU Innovation Fund (Large & Small-Scale Projects)**: Specifically tailored for flagship demonstration pilots and first-of-a-kind commercial plants (TRL 7–9), offering up to **60% capital and operational expenditure grants** with no ceiling limit.\n"
+                    f"- **Horizon Europe Clean Hydrogen / Clean Steel / Net-Zero Partnerships**: Co-programmed partnerships where industrial consortia match EU funding with private in-kind contributions.\n"
+                    f"- **Important Projects of Common European Interest (IPCEI)**: State-aid approved national funding schemes allowing Member States to co-fund breakthrough industrial infrastructure.\n\n"
+                    f"#### 2. Blended Finance Strategy\n"
+                    f"- Use Horizon Europe RIA/IA (TRL 4–7) to finance core research, testing protocols, and safety compliance.\n"
+                    f"- Transition scale-up infrastructure to the EU Innovation Fund or national energy transition grants."
+                )
+                followups = [
+                    "What work package breakdown justifies our requested budget?",
+                    "How should budget be distributed between research institutions and industry?",
+                    "What criteria do Horizon Europe evaluators use for CAPEX vs OPEX justification?"
+                ]
+            elif any(k in q_lower for k in ["capex", "opex", "justif", "criteria", "evaluator"]):
+                reply = (
+                    f"### Evaluator Assessment Criteria for CAPEX & OPEX Justification\n\n"
+                    f"Horizon Europe expert evaluators review budget realism under the **Implementation** scoring criterion (0–5 points):\n\n"
+                    f"#### 1. Eligible Equipment & Depreciation Rules\n"
+                    f"- **Depreciation Only (Standard Rule)**: Under standard Horizon Europe General Model Grant Agreements (MGA), equipment purchases must be depreciated over the project duration ({p_count} partners, 36–48 months) in accordance with national accounting standards.\n"
+                    f"- **Full Equipment Cost Eligibility**: Only applicable if explicitly authorized by the specific call topic text (e.g. specialized pilot infrastructure calls).\n\n"
+                    f"#### 2. Demonstration OPEX & Consumables\n"
+                    f"- Justify raw material costs, energy inputs, and continuous testing hours with detailed Person-Month (PM) calculations.\n"
+                    f"- Include explicit contingency and risk mitigation tables for supply chain or long-lead equipment delays."
+                )
+                followups = [
+                    "What work package breakdown justifies our pilot budget?",
+                    "How should budget be distributed between research institutions and industry?",
+                    "What co-funding or Innovation Fund alternatives exist for large pilots?"
+                ]
+            else:
+                reply = (
+                    f"### Strategic Advisory: {question}\n\n"
+                    f"To structure and justify the **{budget_str}** budget for your **{p_count}-partner {topic}** consortium ({countries_str}), we recommend structuring your proposal around the following operational architecture:\n\n"
+                    f"#### 1. Recommended Work Package (WP) Architecture\n"
+                    f"- **WP1: Project Management, Governance & Quality Assurance** (3–5% of budget) — Consortium coordination, contractual management, risk mitigation, and reporting.\n"
+                    f"- **WP2: Pilot Plant Design, Infrastructure & Site Preparation (CAPEX)** (40–50% of budget) — Procurement of specialized equipment, industrial site integration, and physical construction.\n"
+                    f"- **WP3: Commissioning, Operational Testing & Scale-Up (OPEX)** (20–25% of budget) — System operation, performance testing across industrial conditions, and energy efficiency optimization.\n"
+                    f"- **WP4: Performance Verification, Techno-Economic Analysis (TEA) & LCA** (8–10% of budget) — Third-party verification of capture efficiency, lifecycle assessment, and levelized cost modeling.\n"
+                    f"- **WP5: Industrial Exploitation, Replication & Business Case** (5–8% of budget) — Market uptake strategy, IP protection, and EU-wide industrial deployment roadmap.\n"
+                    f"- **WP6: Safety, Permitting, Regulatory Compliance & Public Engagement** (4–6% of budget) — Environmental approvals, cross-border compliance, and stakeholder outreach.\n\n"
+                    f"#### 2. Evaluator Scrutiny & Co-Funding Opportunities\n"
+                    f"- **Industrial Co-Investment**: Demonstrating substantial in-kind contributions and CAPEX co-financing from industrial partners directly resolves evaluator budget realism concerns.\n"
+                    f"- **Synergy with the EU Innovation Fund**: Large-scale pilots can leverage Horizon Europe for research & initial demonstration, with follow-on CAPEX scaling via the EU Innovation Fund."
+                )
+                followups = [
                     "How should budget be distributed between research institutions and industry?",
                     "What criteria do Horizon Europe evaluators use for CAPEX vs OPEX justification?",
                     "How can we benchmark our deliverables against historical CORDIS projects?"
                 ]
+
+            return {
+                "reply": reply,
+                "verdict": "CONDITIONALLY FEASIBLE",
+                "suggested_followups": followups
             }
 
         # 3. Regulatory Inquiry Prompt Fallback

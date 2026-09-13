@@ -405,11 +405,17 @@ class NeuroSymApp {
 
     this.chatThread.appendChild(row);
     this.scrollToBottom();
+
+    return { rowElem: row, bubbleElem: bubble };
   }
 
   appendFollowupChips(rowElem, chips) {
-    if (!chips || chips.length === 0) return;
+    if (!rowElem || !chips || chips.length === 0) return;
     
+    // Remove existing chips container if any
+    const existing = rowElem.querySelector('.suggestion-chips-container');
+    if (existing) existing.remove();
+
     const container = document.createElement('div');
     container.className = 'suggestion-chips-container';
     
@@ -425,7 +431,11 @@ class NeuroSymApp {
     });
 
     const bubble = rowElem.querySelector('.message-bubble');
-    if (bubble) bubble.appendChild(container);
+    if (bubble) {
+      bubble.appendChild(container);
+    } else {
+      rowElem.appendChild(container);
+    }
   }
 
   updateStatusPill(verdict, overrideLabel = null) {
