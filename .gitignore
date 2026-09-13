@@ -228,4 +228,6 @@ scratch/
 .env.*
 !.env.example
 *.log
+neurosym/qa/
+
 

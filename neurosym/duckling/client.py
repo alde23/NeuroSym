@@ -1,13 +1,14 @@
 """Typed Duckling entity extraction client."""
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
 import httpx
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DUCKLING_URL = "http://localhost:8005/parse"
+DEFAULT_DUCKLING_URL = os.environ.get("DUCKLING_URL", "http://localhost:8005/parse")
 
 
 class DucklingTimeValue(BaseModel):

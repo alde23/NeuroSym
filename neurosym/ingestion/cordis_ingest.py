@@ -27,6 +27,34 @@ logger = logging.getLogger(__name__)
 DEFAULT_DATA_DIR = Path("CORDIS - EU research projects under HORIZON EUROPE (2021-2027)/Publications Office")
 DEFAULT_DB_PATH = Path("cordis.duckdb")
 DEFAULT_SCHEMA_PATH = Path("master_schema.json")
+COMPRESSED_DB_PATHS = [
+    Path("data/cordis.duckdb.zip"),
+    Path("cordis.duckdb.zip")
+]
+
+
+def ensure_database_ready(db_path: Path = DEFAULT_DB_PATH) -> bool:
+    """
+    Checks if DuckDB database exists. If missing, automatically checks for
+    compressed database archive (data/cordis.duckdb.zip) and extracts it in seconds.
+    """
+    target = Path(db_path)
+    if target.exists():
+        return True
+
+    for zip_candidate in COMPRESSED_DB_PATHS:
+        if zip_candidate.exists():
+            logger.info(f"Extracting compressed dataset from {zip_candidate} to {target}...")
+            try:
+                with zipfile.ZipFile(zip_candidate, "r") as z:
+                    z.extractall(target.parent)
+                if target.exists():
+                    logger.info(f"Successfully extracted {target} ({target.stat().st_size / (1024*1024):.1f} MB).")
+                    return True
+            except Exception as e:
+                logger.warning(f"Failed to auto-extract {zip_candidate}: {e}")
+
+    return False
 
 COUNTRY_MAP = {
     "DE": "Germany", "FR": "France", "IT": "Italy", "ES": "Spain",

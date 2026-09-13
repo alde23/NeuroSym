@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import duckdb
 from pydantic import BaseModel, Field
 
-from neurosym.ingestion.cordis_ingest import DEFAULT_DB_PATH
+from neurosym.ingestion.cordis_ingest import DEFAULT_DB_PATH, ensure_database_ready
 from neurosym.intent.intent_schema import IntentSchema, Operator, SortOrder
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,7 @@ class QueryEngine:
 
     def __init__(self, db_path: Path = DEFAULT_DB_PATH):
         self.db_path = Path(db_path)
+        ensure_database_ready(self.db_path)
 
     def execute(self, intent: IntentSchema) -> QueryResult:
         """Translates intent to SQL, executes against DuckDB, and returns referenced records."""
