@@ -120,7 +120,7 @@ def health_check():
 def list_chat_sessions():
     """
     Returns list of all active chat sessions for the frontend sidebar.
-    Includes session ID, snippet/title, message count, created timestamp, and latest verdict.
+    Includes session ID, snippet/title, message count, created timestamp, latest verdict, and extracted proposal specs.
     """
     sessions_list = []
     for sid, sess in sorted(chat_agent.sessions.items(), key=lambda x: x[1].updated_at, reverse=True):
@@ -128,8 +128,19 @@ def list_chat_sessions():
         if sess.messages:
             first_user_msg = next((m.content for m in sess.messages if m.role == "user"), None)
             if first_user_msg:
-                title = first_user_msg[:45] + ("..." if len(first_user_msg) > 45 else "")
+                title = first_user_msg[:50] + ("..." if len(first_user_msg) > 50 else "")
         
+        ctx = sess.proposal_context
+        specs_parts = []
+        if ctx.partner_count:
+            specs_parts.append(f"{ctx.partner_count} partners")
+        if ctx.requested_duration_months:
+            specs_parts.append(f"{ctx.requested_duration_months}mo")
+        if ctx.requested_budget_eur:
+            specs_parts.append(f"€{ctx.requested_budget_eur/1e6:.1f}M")
+        if ctx.countries:
+            specs_parts.append(", ".join(ctx.countries[:3]) + ("+" if len(ctx.countries) > 3 else ""))
+
         sessions_list.append({
             "session_id": sid,
             "title": title,
@@ -137,7 +148,9 @@ def list_chat_sessions():
             "updated_at": sess.updated_at,
             "message_count": len(sess.messages),
             "verdict": sess.latest_verdict.value if sess.latest_verdict else "FEASIBLE",
-            "topic": sess.proposal_context.domain_topic or "Horizon Europe"
+            "topic": ctx.domain_topic or "Horizon Europe",
+            "specs_summary": " • ".join(specs_parts) if specs_parts else None,
+            "proposal_context": ctx.model_dump() if ctx else None
         })
     return {"sessions": sessions_list}
 

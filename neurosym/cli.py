@@ -317,6 +317,25 @@ def cmd_serve(args):
     uvicorn.run("neurosym.api.server:app", host=args.host, port=args.port, reload=args.reload)
 
 
+def cmd_test_adversarial(args):
+    """Execute the 5-Phase Adversarial Multi-Agent Stress Testing Pipeline."""
+    from neurosym.qa.adversarial_pipeline import AdversarialPipelineOrchestrator
+    orchestrator = AdversarialPipelineOrchestrator()
+    summary = orchestrator.run_adversarial_suite(rate_delay_s=args.delay)
+    
+    table = Table(title="NeuroSym 5-Phase Adversarial Stress Test Results", header_style="bold green")
+    table.add_column("Phase ID & Focus Area", style="cyan")
+    table.add_column("Score", justify="center", style="yellow")
+    table.add_column("Passed / Total", justify="center", style="green")
+
+    for phase, stats in summary["phase_scores"].items():
+        score_str = f"[bold green]{stats['score']}/10.0[/bold green]" if stats['score'] == 10.0 else f"[bold yellow]{stats['score']}/10.0[/bold yellow]"
+        table.add_row(phase, score_str, f"{stats['passed']}/{stats['total']}")
+
+    console.print(table)
+    console.print(f"[bold cyan]Overall Integrity Score:[/bold cyan] [bold green]{summary['overall_score']}/10.0[/bold green] ({summary['total_passed']}/{summary['total_tests']} tests passed)")
+
+
 def main():
     parser = argparse.ArgumentParser(description="NeuroSym - CORDIS Entity Extraction, Evidence Runtime & Decision Synthesizer")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -347,6 +366,10 @@ def main():
     serve_parser.add_argument("--port", type=int, default=8080, help="Port to listen on (default: 8080)")
     serve_parser.add_argument("--reload", action="store_true", help="Enable hot reloading")
 
+    # Adversarial Pipeline command
+    adv_parser = subparsers.add_parser("test-adversarial", help="Run the 5-phase adversarial multi-agent stress test pipeline")
+    adv_parser.add_argument("--delay", type=float, default=1.0, help="Pacing delay between LLM calls in seconds (default: 1.0)")
+
     args = parser.parse_args()
 
     if args.command == "ingest":
@@ -361,8 +384,11 @@ def main():
         cmd_parse(args)
     elif args.command == "serve":
         cmd_serve(args)
+    elif args.command == "test-adversarial":
+        cmd_test_adversarial(args)
 
 
 if __name__ == "__main__":
     main()
+
 

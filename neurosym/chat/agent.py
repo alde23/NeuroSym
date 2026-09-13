@@ -127,7 +127,8 @@ class NeuroSymChatAgent:
             conversation_history=[m.model_dump() for m in session.messages[-8:]],
             user_message=user_message,
             proposal_context=session.proposal_context,
-            evidence=evidence
+            evidence=evidence,
+            base_report=base_report
         )
 
         # 7. Call LLM for conversational reasoning

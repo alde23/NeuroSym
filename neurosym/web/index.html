@@ -136,39 +136,61 @@
     <div class="drawer-content">
       
       <!-- Active Proposal Context -->
-      <div class="card-panel">
-        <div class="card-panel-title">Consortium Specifications</div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
-          <div><strong style="color: var(--text-dim);">Partners:</strong> <span id="drawer-partners">-</span></div>
-          <div><strong style="color: var(--text-dim);">Duration:</strong> <span id="drawer-duration">-</span></div>
-          <div><strong style="color: var(--text-dim);">Countries:</strong> <span id="drawer-countries">-</span></div>
-          <div><strong style="color: var(--text-dim);">Scheme:</strong> <span id="drawer-scheme">HORIZON-RIA</span></div>
+      <div class="card-panel" id="drawer-specs-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <div class="card-panel-title" style="margin-bottom: 0;">Consortium Specifications</div>
+          <span id="drawer-scheme-badge" class="session-badge feasible">HORIZON-RIA</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px;">
+          <div><strong style="color: var(--text-dim); display: block; font-size: 11px; text-transform: uppercase;">Consortium Size</strong> <span id="drawer-partners" style="font-weight: 600;">-</span></div>
+          <div><strong style="color: var(--text-dim); display: block; font-size: 11px; text-transform: uppercase;">Duration</strong> <span id="drawer-duration" style="font-weight: 600;">-</span></div>
+          <div style="grid-column: span 2;"><strong style="color: var(--text-dim); display: block; font-size: 11px; text-transform: uppercase;">Countries / Jurisdiction</strong> <span id="drawer-countries" style="font-weight: 600;">-</span></div>
+          <div style="grid-column: span 2;"><strong style="color: var(--text-dim); display: block; font-size: 11px; text-transform: uppercase;">Requested EC Funding</strong> <span id="drawer-budget" style="font-weight: 700; font-size: 14px; color: var(--accent-cyan);">-</span></div>
+          <div style="grid-column: span 2;"><strong style="color: var(--text-dim); display: block; font-size: 11px; text-transform: uppercase;">Empirical Percentile Position</strong> <span id="drawer-budget-rank" style="font-weight: 600;">-</span></div>
         </div>
       </div>
 
       <!-- Live Regulatory Compliance Matrix -->
       <div class="card-panel">
-        <div class="card-panel-title">Regulatory & Policy Rules</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div class="card-panel-title" style="margin-bottom: 0;">Regulatory Compliance Matrix</div>
+          <span id="drawer-rules-count" style="font-size: 11px; color: var(--text-dim);">General Annex B</span>
+        </div>
         <div id="drawer-rules-list">
-          <div style="font-size: 13px; color: var(--text-dim);">Awaiting proposal inquiry...</div>
+          <div style="font-size: 13px; color: var(--text-dim); padding: 8px 0;">Awaiting proposal inquiry...</div>
         </div>
       </div>
 
       <!-- Empirical Percentile Bands -->
       <div class="card-panel">
-        <div class="card-panel-title">CORDIS Historical Budget Bands</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div class="card-panel-title" style="margin-bottom: 0;">CORDIS Empirical Benchmarks</div>
+          <span id="drawer-outlier-badge" class="session-badge" style="display: none;">OUTLIER</span>
+        </div>
+        <div id="drawer-cohort-info" style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">
+          Benchmarked against live CORDIS historical actions.
+        </div>
+        <div id="drawer-outlier-alert" style="display: none; padding: 8px 12px; margin-bottom: 12px; border-radius: 6px; font-size: 12px; background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.4); color: #fda4af;">
+          ⚠️ Requested budget exceeds the 95th percentile threshold.
+        </div>
+        
+        <!-- Interactive Benchmark Distribution Scale -->
         <div class="stat-bar-group" id="drawer-stats-group">
           <div class="stat-bar-item">
-            <div class="stat-bar-label"><span>5th Percentile (P5)</span><span id="p5-val">€3.33M</span></div>
-            <div class="stat-bar-track"><div class="stat-bar-fill" style="width: 25%;"></div></div>
+            <div class="stat-bar-label"><span>5th Percentile (P5)</span><span id="p5-val">€2.38M</span></div>
+            <div class="stat-bar-track"><div class="stat-bar-fill" id="p5-fill" style="width: 25%; background: var(--verdict-feasible);"></div></div>
           </div>
           <div class="stat-bar-item">
-            <div class="stat-bar-label"><span>Median (P50)</span><span id="p50-val">€6.00M</span></div>
-            <div class="stat-bar-track"><div class="stat-bar-fill" style="width: 55%;"></div></div>
+            <div class="stat-bar-label"><span>Cohort Median (P50)</span><span id="p50-val">€4.99M</span></div>
+            <div class="stat-bar-track"><div class="stat-bar-fill" id="p50-fill" style="width: 50%; background: var(--accent-cyan);"></div></div>
           </div>
           <div class="stat-bar-item">
-            <div class="stat-bar-label"><span>95th Percentile (P95)</span><span id="p95-val">€27.18M</span></div>
-            <div class="stat-bar-track"><div class="stat-bar-fill" style="width: 95%;"></div></div>
+            <div class="stat-bar-label"><span>95th Percentile (P95)</span><span id="p95-val">€11.72M</span></div>
+            <div class="stat-bar-track"><div class="stat-bar-fill" id="p95-fill" style="width: 85%; background: var(--verdict-cond);"></div></div>
+          </div>
+          <div class="stat-bar-item" id="user-stat-bar-item" style="display: none; margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--border-subtle);">
+            <div class="stat-bar-label"><span style="color: var(--accent-cyan); font-weight: 700;">Your Requested Grant</span><span id="user-grant-val" style="font-weight: 700;">-</span></div>
+            <div class="stat-bar-track"><div class="stat-bar-fill" id="user-grant-fill" style="width: 100%; background: var(--verdict-infeasible);"></div></div>
           </div>
         </div>
       </div>

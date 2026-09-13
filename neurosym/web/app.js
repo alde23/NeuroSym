@@ -32,7 +32,11 @@ class NeuroSymApp {
     this.drawerDuration = document.getElementById('drawer-duration');
     this.drawerCountries = document.getElementById('drawer-countries');
     this.drawerScheme = document.getElementById('drawer-scheme');
+    this.drawerBudget = document.getElementById('drawer-budget');
+    this.drawerBudgetRank = document.getElementById('drawer-budget-rank');
     this.drawerRulesList = document.getElementById('drawer-rules-list');
+    this.drawerOutlierBadge = document.getElementById('drawer-outlier-badge');
+    this.drawerOutlierAlert = document.getElementById('drawer-outlier-alert');
 
     this.init();
   }
@@ -147,12 +151,27 @@ class NeuroSymApp {
         item.className = 'session-item' + (sess.session_id === this.sessionId ? ' active' : '');
         
         let badgeClass = 'feasible';
-        if (sess.verdict === 'INFEASIBLE') badgeClass = 'infeasible';
-        else if (sess.verdict === 'CONDITIONALLY FEASIBLE') badgeClass = 'conditional';
+        let badgeLabel = 'FEAS';
+        if (sess.verdict === 'INFEASIBLE') {
+          badgeClass = 'infeasible';
+          badgeLabel = 'INFEAS';
+        } else if (sess.verdict === 'CONDITIONALLY FEASIBLE') {
+          badgeClass = 'conditional';
+          badgeLabel = 'COND';
+        }
+
+        const specsHtml = sess.specs_summary 
+          ? `<div class="session-specs-summary">${sess.specs_summary}</div>` 
+          : `<div class="session-specs-summary">${sess.topic || 'Horizon Europe'}</div>`;
 
         item.innerHTML = `
-          <span class="session-title-text" title="${sess.title}">${sess.title}</span>
-          <span class="session-badge ${badgeClass}">${sess.verdict ? sess.verdict.substring(0, 4) : 'OK'}</span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+              <span class="session-title-text" title="${sess.title}">${sess.title}</span>
+              <span class="session-badge ${badgeClass}">${badgeLabel}</span>
+            </div>
+            ${specsHtml}
+          </div>
         `;
 
         item.addEventListener('click', () => this.switchSession(sess.session_id));
@@ -350,12 +369,30 @@ class NeuroSymApp {
   }
 
   updateDrawerEvidence(ctx, data) {
+    let requestedBudget = null;
     if (ctx) {
-      this.drawerPartners.textContent = ctx.partner_count ? `${ctx.partner_count} partners` : '-';
-      this.drawerDuration.textContent = ctx.requested_duration_months ? `${ctx.requested_duration_months} mo` : '-';
+      const pCount = ctx.partner_count ? `${ctx.partner_count} partners` : '-';
+      const pBreakdown = (ctx.member_state_count || ctx.associated_country_count) 
+        ? ` (${ctx.member_state_count || 0} EU27, ${ctx.associated_country_count || 0} Assoc${ctx.third_country_count ? `, ${ctx.third_country_count} Third` : ''})` 
+        : '';
+      this.drawerPartners.textContent = pCount + pBreakdown;
+      this.drawerDuration.textContent = ctx.requested_duration_months ? `${ctx.requested_duration_months} months` : '-';
       this.drawerCountries.textContent = ctx.countries && ctx.countries.length > 0 ? ctx.countries.join(', ') : '-';
-      this.drawerScheme.textContent = ctx.funding_scheme || 'HORIZON-RIA';
-      if (ctx.domain_topic) this.topicText.textContent = `Topic: ${ctx.domain_topic}`;
+      
+      const scheme = ctx.funding_scheme || 'HORIZON-RIA';
+      const schemeBadge = document.getElementById('drawer-scheme-badge');
+      if (schemeBadge) schemeBadge.textContent = scheme;
+
+      if (ctx.domain_topic) {
+        this.topicText.textContent = `Topic: ${ctx.domain_topic}`;
+      }
+      
+      if (ctx.requested_budget_eur) {
+        requestedBudget = ctx.requested_budget_eur;
+        this.drawerBudget.textContent = `€${(requestedBudget / 1e6).toFixed(2)}M (€${requestedBudget.toLocaleString()})`;
+      } else {
+        this.drawerBudget.textContent = '-';
+      }
     }
 
     if (data && data.regulatory_evidence) {
@@ -363,9 +400,51 @@ class NeuroSymApp {
       data.regulatory_evidence.forEach(ruleStr => {
         const item = document.createElement('div');
         item.className = 'rule-item';
-        if (ruleStr.includes('[VIOLATION]')) item.classList.add('violation');
-        else if (ruleStr.includes('[CAUTION]')) item.classList.add('caution');
-        item.textContent = ruleStr;
+        
+        let icon = '✅';
+        let statusBadge = '<span class="session-badge feasible">PASSED</span>';
+        let badgeType = 'compliant';
+
+        if (ruleStr.includes('[VIOLATION]')) {
+          item.classList.add('violation');
+          icon = '❌';
+          statusBadge = '<span class="session-badge infeasible">VIOLATION</span>';
+          badgeType = 'violation';
+        } else if (ruleStr.includes('[CAUTION]')) {
+          item.classList.add('caution');
+          icon = '⚠️';
+          statusBadge = '<span class="session-badge conditional">CAUTION</span>';
+          badgeType = 'caution';
+        }
+
+        // Clean prefix
+        const cleanText = ruleStr
+          .replace('[VIOLATION] ', '')
+          .replace('[CAUTION] ', '')
+          .replace('[COMPLIANT] ', '');
+
+        // Extract rule id
+        const ruleIdMatch = cleanText.match(/^([A-Z0-9\-]+)\s*\(([^)]+)\):\s*(.*)$/);
+        if (ruleIdMatch) {
+          const rId = ruleIdMatch[1];
+          const rName = ruleIdMatch[2];
+          const rMsg = ruleIdMatch[3];
+          item.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span style="font-weight: 700; font-size: 12px; color: var(--text-main);">${icon} ${rId} (${rName})</span>
+              ${statusBadge}
+            </div>
+            <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.4;">${rMsg}</div>
+          `;
+        } else {
+          item.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+              <span style="font-size: 12.5px; color: var(--text-main); line-height: 1.4;">${icon} ${cleanText}</span>
+              ${statusBadge}
+            </div>
+          `;
+        }
+
         this.drawerRulesList.appendChild(item);
       });
     }
@@ -375,6 +454,52 @@ class NeuroSymApp {
       if (s.budget_p5) document.getElementById('p5-val').textContent = `€${(s.budget_p5 / 1e6).toFixed(2)}M`;
       if (s.budget_p50) document.getElementById('p50-val').textContent = `€${(s.budget_p50 / 1e6).toFixed(2)}M`;
       if (s.budget_p95) document.getElementById('p95-val').textContent = `€${(s.budget_p95 / 1e6).toFixed(2)}M`;
+
+      const cohortElem = document.getElementById('drawer-cohort-info');
+      if (cohortElem) {
+        cohortElem.textContent = `Benchmarked against ${s.comparable_project_count || 'live'} funded ${s.funding_scheme || 'HORIZON'} actions in CORDIS.`;
+      }
+
+      // Outlier detection and percentile ranking
+      const outlierBadge = document.getElementById('drawer-outlier-badge');
+      const outlierAlert = document.getElementById('drawer-outlier-alert');
+      const userStatItem = document.getElementById('user-stat-bar-item');
+      const userGrantVal = document.getElementById('user-grant-val');
+      const userGrantFill = document.getElementById('user-grant-fill');
+
+      if (requestedBudget && s.budget_p95) {
+        const isOutlier = requestedBudget > s.budget_p95;
+        const isLowOutlier = s.budget_p5 && requestedBudget < s.budget_p5;
+        const rank = s.requested_budget_percentile !== null && s.requested_budget_percentile !== undefined 
+          ? s.requested_budget_percentile 
+          : (requestedBudget > s.budget_p95 ? 100.0 : 50.0);
+
+        this.drawerBudgetRank.textContent = `${rank.toFixed(1)}th Percentile ${isOutlier ? '(Severe Outlier >P95)' : isLowOutlier ? '(Below P5)' : '(Normal Cohort Band)'}`;
+        this.drawerBudgetRank.style.color = isOutlier ? 'var(--verdict-infeasible)' : isLowOutlier ? 'var(--verdict-conditional)' : 'var(--verdict-feasible)';
+
+        if (outlierBadge) {
+          outlierBadge.style.display = isOutlier ? 'inline-block' : 'none';
+          outlierBadge.className = 'session-badge ' + (isOutlier ? 'infeasible' : 'feasible');
+          outlierBadge.textContent = isOutlier ? '⚠️ OUTLIER (>P95)' : 'IN BAND';
+        }
+
+        if (outlierAlert) {
+          outlierAlert.style.display = isOutlier ? 'block' : 'none';
+          outlierAlert.innerHTML = `⚠️ <strong>Severe Outlier</strong>: Requested budget of <strong>€${(requestedBudget / 1e6).toFixed(2)}M</strong> is at the <strong>${rank.toFixed(1)}th percentile</strong>, exceeding historical 95th percentile benchmark (€${(s.budget_p95 / 1e6).toFixed(2)}M). Evaluators will scrutinize CAPEX and budget realism.`;
+        }
+
+        if (userStatItem && userGrantVal && userGrantFill) {
+          userStatItem.style.display = 'flex';
+          userGrantVal.textContent = `€${(requestedBudget / 1e6).toFixed(2)}M (${rank.toFixed(1)}th %ile)`;
+          userGrantVal.style.color = isOutlier ? 'var(--verdict-infeasible)' : 'var(--accent-cyan)';
+          userGrantFill.style.background = isOutlier ? 'var(--verdict-infeasible)' : 'var(--accent-cyan)';
+        }
+      } else {
+        this.drawerBudgetRank.textContent = '-';
+        if (outlierBadge) outlierBadge.style.display = 'none';
+        if (outlierAlert) outlierAlert.style.display = 'none';
+        if (userStatItem) userStatItem.style.display = 'none';
+      }
     }
   }
 

@@ -39,7 +39,9 @@ TOPIC_ALIASES = {
     "nanotechnology": ["nanotechnology", "nanomaterials", "nanoscale"],
     "biomass": ["biomass", "biofuels", "bioenergy"],
     "agriculture": ["agriculture", "farming", "agritech"],
+    "carbon capture": ["ccus", "carbon capture", "carbon capture and storage", "ccs", "co2 capture", "carbon removal", "direct air capture"],
     "circular economy": ["circular economy", "recycling", "waste reduction"],
+    "decarbonization": ["decarbonization", "net-zero", "emission reduction", "clean tech"],
     "graphene": ["graphene", "2d materials"],
     "vaccines": ["vaccines", "immunology", "vaccination"]
 }
