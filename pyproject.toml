@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurosym"
+version = "0.1.0"
+description = "Neuro-Symbolic Entity Extraction and CORDIS Query Pipeline with Duckling and DuckDB"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "duckdb>=1.1.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.27.0",
+    "rich>=13.0.0",
+    "tabulate>=0.9.0",
+    "fastapi>=0.141.1",
+    "uvicorn>=0.52.4",
+    "guardrails-ai>=0.11.0",
+]
+
+[project.scripts]
+neurosym = "neurosym.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

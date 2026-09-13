@@ -1,0 +1,109 @@
+{
+  "domain_id": "eu_horizon_2026",
+  "name": "EU Horizon Europe Project Eligibility & Policy Rules",
+  "description": "Pre-check a planned Horizon Europe proposal against official eligibility rules, historical CORDIS benchmarks and company policy.",
+  "named_sets": {
+    "EU27": [
+      "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR",
+      "DE", "EL", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL",
+      "PL", "PT", "RO", "SK", "SI", "ES", "SE"
+    ],
+    "ASSOCIATED": [
+      "NO", "IS", "UK", "CH", "TR", "IL", "UA", "RS", "BA", "ME",
+      "MK", "AL", "GE", "MD", "AM", "TN", "NZ", "CA", "KR", "FO",
+      "XK", "EG"
+    ],
+    "CONSORTIUM_SCHEMES": [
+      "HORIZON-RIA", "HORIZON-IA", "HORIZON-CSA", "HORIZON-JU-RIA", "HORIZON-JU-IA", "HORIZON-JU-CSA"
+    ]
+  },
+  "rules": [
+    {
+      "rule_id": "R-001",
+      "source": "official",
+      "name": "min_consortium_size",
+      "field": "partner_count",
+      "op": ">=",
+      "value": 3,
+      "severity": "error",
+      "applies_when": {"field": "funding_scheme", "op": "in", "value": "CONSORTIUM_SCHEMES"},
+      "message": "RIA/IA/CSA actions require at least 3 independent legal entities (General Annex B). Associated partners and third parties do not count.",
+      "reference": "Horizon Europe Work Programme General Annex B"
+    },
+    {
+      "rule_id": "R-002",
+      "source": "official",
+      "name": "min_distinct_countries",
+      "field": "distinct_country_count",
+      "op": ">=",
+      "value": 3,
+      "severity": "error",
+      "applies_when": {"field": "funding_scheme", "op": "in", "value": "CONSORTIUM_SCHEMES"},
+      "message": "Partners must come from at least 3 different Member States or Associated Countries (General Annex B).",
+      "reference": "Horizon Europe Work Programme General Annex B"
+    },
+    {
+      "rule_id": "R-003",
+      "source": "official",
+      "name": "at_least_one_member_state",
+      "field": "member_state_count",
+      "op": ">=",
+      "value": 1,
+      "severity": "error",
+      "applies_when": {"field": "funding_scheme", "op": "in", "value": "CONSORTIUM_SCHEMES"},
+      "message": "At least one partner must be established in an EU Member State.",
+      "reference": "Horizon Europe Work Programme General Annex B"
+    },
+    {
+      "rule_id": "R-005",
+      "source": "official",
+      "name": "eligible_countries_only",
+      "field": "third_country_count",
+      "op": "==",
+      "value": 0,
+      "severity": "warning",
+      "message": "Partners from non-associated third countries are usually not eligible for funding (they may still participate at their own cost).",
+      "reference": "Horizon Europe Programme Guide, section 'Countries eligible for funding'"
+    },
+    {
+      "rule_id": "R-007",
+      "source": "benchmark",
+      "name": "budget_within_historical_band",
+      "field": "requested_budget_eur",
+      "op": "within_percentile",
+      "value": [5, 95],
+      "evidence": "budget_percentiles",
+      "severity": "warning",
+      "message": "Requested EU contribution is outside the 5th–95th percentile of comparable funded projects in CORDIS.",
+      "reference": "CORDIS Horizon Europe projects (live DuckDB query)"
+    },
+    {
+      "rule_id": "R-008",
+      "source": "official",
+      "name": "max_project_duration",
+      "field": "requested_duration_months",
+      "op": "<=",
+      "value": 48,
+      "severity": "error",
+      "message": "Project duration exceeds statutory maximum ceiling of 48 months.",
+      "reference": "Horizon Europe Work Programme topic conditions"
+    },
+    {
+      "rule_id": "P-001",
+      "source": "policy",
+      "name": "min_budget_to_coordinate",
+      "field": "requested_budget_eur",
+      "op": ">=",
+      "value": 2000000,
+      "severity": "error",
+      "applies_when": {"field": "our_role", "op": "==", "value": "coordinator"},
+      "message": "Company policy: we only coordinate projects with an EU contribution of at least €2M.",
+      "reference": "Internal grants office policy 2026-01"
+    }
+  ],
+  "benchmarks": {
+    "eligible_project_rate": {"target": 0.75, "unit": "ratio"},
+    "extraction_completeness": {"target": 0.95, "unit": "ratio"},
+    "p95_evaluation_latency_ms": {"target": 500, "unit": "milliseconds"}
+  }
+}

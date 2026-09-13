@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# NeuroSym specific
+*.duckdb
+*.duckdb.wal
+cordis.duckdb
+CORDIS - EU research projects under HORIZON EUROPE (2021-2027)/
+scratch_diag.py
+scratch/
+.env
+.env.*
+!.env.example
+*.log
+

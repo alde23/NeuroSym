@@ -1,0 +1,192 @@
+/* ==========================================================================
+   NEUROSYM DESIGN SYSTEM TOKENS & SWAPPABLE THEME ENGINE
+   Easily customize or swap themes by changing data-theme on the <html> element
+   ========================================================================== */
+
+:root {
+  /* Default Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  /* Universal Spacing & Layout */
+  --sidebar-width: 280px;
+  --drawer-width: 420px;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-full: 9999px;
+
+  /* Universal Transitions */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* ==========================================================================
+   THEME 1: HORIZON DARK (Default - Deep Indigo / Cobalt / Cyan Glass)
+   ========================================================================== */
+[data-theme="horizon-dark"], :root {
+  --bg-app: #080c14;
+  --bg-sidebar: #0d121f;
+  --bg-surface: rgba(18, 24, 38, 0.85);
+  --bg-surface-elevated: #161e31;
+  --bg-card: rgba(22, 30, 49, 0.7);
+  --bg-glass: rgba(13, 18, 31, 0.75);
+  --bg-input: #111726;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(56, 189, 248, 0.5);
+  --border-glass: rgba(255, 255, 255, 0.12);
+
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  --text-inverse: #030712;
+
+  --accent-primary: #0284c7;
+  --accent-light: #38bdf8;
+  --accent-gradient: linear-gradient(135deg, #0284c7 0%, #38bdf8 50%, #818cf8 100%);
+  --accent-glow: rgba(56, 189, 248, 0.25);
+
+  --verdict-feasible: #10b981;
+  --verdict-feasible-bg: rgba(16, 185, 129, 0.15);
+  --verdict-cond: #f59e0b;
+  --verdict-cond-bg: rgba(245, 158, 11, 0.15);
+  --verdict-infeasible: #ef4444;
+  --verdict-infeasible-bg: rgba(239, 68, 68, 0.15);
+  --verdict-out: #a855f7;
+  --verdict-out-bg: rgba(168, 85, 247, 0.15);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 20px rgba(56, 189, 248, 0.2);
+  --blur-glass: blur(16px);
+}
+
+/* ==========================================================================
+   THEME 2: NORDIC CLEAN (Minimalist Graphite / Arctic Blue)
+   ========================================================================== */
+[data-theme="nordic-clean"] {
+  --bg-app: #0f141c;
+  --bg-sidebar: #151b24;
+  --bg-surface: rgba(24, 31, 42, 0.9);
+  --bg-surface-elevated: #1f2735;
+  --bg-card: rgba(27, 36, 49, 0.7);
+  --bg-glass: rgba(21, 27, 36, 0.8);
+  --bg-input: #18202c;
+  --bg-hover: rgba(255, 255, 255, 0.05);
+
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-focus: rgba(14, 165, 233, 0.5);
+  --border-glass: rgba(255, 255, 255, 0.1);
+
+  --text-main: #e2e8f0;
+  --text-muted: #8e9fb5;
+  --text-dim: #5a6e85;
+  --text-inverse: #0a0f18;
+
+  --accent-primary: #0ea5e9;
+  --accent-light: #7dd3fc;
+  --accent-gradient: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%);
+  --accent-glow: rgba(14, 165, 233, 0.2);
+
+  --verdict-feasible: #059669;
+  --verdict-feasible-bg: rgba(5, 150, 105, 0.15);
+  --verdict-cond: #d97706;
+  --verdict-cond-bg: rgba(217, 119, 6, 0.15);
+  --verdict-infeasible: #dc2626;
+  --verdict-infeasible-bg: rgba(220, 38, 38, 0.15);
+  --verdict-out: #9333ea;
+  --verdict-out-bg: rgba(147, 51, 234, 0.15);
+
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 20px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 16px rgba(14, 165, 233, 0.15);
+  --blur-glass: blur(12px);
+}
+
+/* ==========================================================================
+   THEME 3: MIDNIGHT CYBER (Obsidian / Neon Purple & Electric Violet)
+   ========================================================================== */
+[data-theme="midnight-cyber"] {
+  --bg-app: #090514;
+  --bg-sidebar: #0f0a21;
+  --bg-surface: rgba(22, 16, 46, 0.85);
+  --bg-surface-elevated: #1e153d;
+  --bg-card: rgba(28, 20, 58, 0.7);
+  --bg-glass: rgba(15, 10, 33, 0.8);
+  --bg-input: #150e2d;
+  --bg-hover: rgba(255, 255, 255, 0.07);
+
+  --border-subtle: rgba(168, 85, 247, 0.15);
+  --border-focus: rgba(217, 70, 239, 0.6);
+  --border-glass: rgba(217, 70, 239, 0.2);
+
+  --text-main: #faf5ff;
+  --text-muted: #c084fc;
+  --text-dim: #7e22ce;
+  --text-inverse: #05020a;
+
+  --accent-primary: #9333ea;
+  --accent-light: #c084fc;
+  --accent-gradient: linear-gradient(135deg, #9333ea 0%, #d946ef 50%, #ec4899 100%);
+  --accent-glow: rgba(217, 70, 239, 0.3);
+
+  --verdict-feasible: #10b981;
+  --verdict-feasible-bg: rgba(16, 185, 129, 0.15);
+  --verdict-cond: #f59e0b;
+  --verdict-cond-bg: rgba(245, 158, 11, 0.15);
+  --verdict-infeasible: #f43f5e;
+  --verdict-infeasible-bg: rgba(244, 63, 94, 0.15);
+  --verdict-out: #c084fc;
+  --verdict-out-bg: rgba(192, 132, 252, 0.15);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 24px rgba(217, 70, 239, 0.25);
+  --blur-glass: blur(18px);
+}
+
+/* ==========================================================================
+   THEME 4: EMERALD BIO (Forest Obsidian / Mint Green & Gold)
+   ========================================================================== */
+[data-theme="emerald-bio"] {
+  --bg-app: #04120c;
+  --bg-sidebar: #071c13;
+  --bg-surface: rgba(11, 35, 25, 0.85);
+  --bg-surface-elevated: #114230;
+  --bg-card: rgba(15, 48, 35, 0.7);
+  --bg-glass: rgba(7, 28, 19, 0.8);
+  --bg-input: #0a241a;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+
+  --border-subtle: rgba(16, 185, 129, 0.15);
+  --border-focus: rgba(52, 211, 153, 0.6);
+  --border-glass: rgba(52, 211, 153, 0.2);
+
+  --text-main: #f0fdf4;
+  --text-muted: #86efac;
+  --text-dim: #15803d;
+  --text-inverse: #020805;
+
+  --accent-primary: #059669;
+  --accent-light: #34d399;
+  --accent-gradient: linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%);
+  --accent-glow: rgba(52, 211, 153, 0.25);
+
+  --verdict-feasible: #34d399;
+  --verdict-feasible-bg: rgba(52, 211, 153, 0.15);
+  --verdict-cond: #fbbf24;
+  --verdict-cond-bg: rgba(251, 191, 36, 0.15);
+  --verdict-infeasible: #f87171;
+  --verdict-infeasible-bg: rgba(248, 113, 113, 0.15);
+  --verdict-out: #a78bfa;
+  --verdict-out-bg: rgba(167, 139, 250, 0.15);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 20px rgba(52, 211, 153, 0.2);
+  --blur-glass: blur(16px);
+}
